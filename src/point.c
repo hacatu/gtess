@@ -208,5 +208,74 @@ GT_Point GT_Point_project_sqmag(GT_Point a, GT_Point b, double b_sqmag){
     return GT_Point_scale(b, GT_Point_dot(a, b)/b_sqmag);
 }
 
+//line intersection functions
+int GT_Point_intersect_segments_ab(GT_Point *out, GT_Point a_a, GT_Point a_b, GT_Point b_a, GT_Point b_b){
+	return GT_Point_intersect_segments_po(out, a_a, GT_Point_sub(a_b, a_a), b_a, GT_Point_sub(b_b, b_a));
+}
+
+int GT_Point_intersect_segments_po(GT_Point *out, GT_Point a_p, GT_Point a_o, GT_Point b_p, GT_Point b_o){
+	double det = GT_Point_cross(a_o, b_o);
+	if(fabs(det) < GT_EPSILON){
+		if(fabs(GT_Point_cross(GT_Point_sub(b_p, a_p), a_o)) < GT_EPSILON){//collinear
+			double rsqmag = GT_Point_sqmag(a_o);
+			double t0 = GT_Point_dot(GT_Point_sub(b_p, a_p), a_o)/rsqmag;
+			double t1 = t0 + GT_Point_dot(b_o, a_o)/rsqmag;
+			if(t1 < t0){
+				if(t1 <= 0){
+					if(t0 >= 0){
+						*out = a_p;
+						return 2;
+					}
+				}else if(t1 <= 1){
+					*out = GT_Point_add(a_p, a_o);
+					return 2;
+				}
+			}else if(t0 <= 0){
+				if(t1 >= 0){
+					*out = a_p;
+					return 2;
+				}
+			}else if(t0 <= 1){
+				*out = b_p;
+				return 2;
+			}
+		}
+		return 0;
+	}
+	double t = GT_Point_cross(GT_Point_sub(b_p, a_p), a_o)/det;
+	*out = GT_Point_add(a_p, GT_Point_scale(a_o, t));
+	return 1;
+}
+
+
+void GT_Point_tan_quadrant(GT_Point a, int *quadrant, double *angle){
+	if(a.x > 0){
+		if(a.y >= 0){
+			*quadrant = 1;
+			*angle = a.y/a.x;
+		}else{
+			*quadrant = 4;
+			*angle = a.x/-a.y;
+		}
+	}else if(a.x < 0){
+		if(a.y <= 0){
+			*quadrant = 3;
+			*angle = a.y/a.x;
+		}else{
+			*quadrant = 2;
+			*angle = -a.x/a.y;
+		}
+	}else{
+		if(a.y < 0){
+			*quadrant = 4;
+		}else if(a.y > 0){
+			*quadrant = 2;
+		}else{
+			*quadrant = 1;
+		}
+		*angle = 0;
+	}
+}
+
 GT_Point GT_Point_e1 = {1, 0}, GT_Point_e2 = {0, 1}, GT_Point_zero = {0, 0};
 

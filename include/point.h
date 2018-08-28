@@ -61,6 +61,14 @@ GT_Point GT_Point_project(GT_Point a, GT_Point b);
 GT_Point GT_Point_project_unit(GT_Point a, GT_Point b);
 GT_Point GT_Point_project_sqmag(GT_Point a, GT_Point b, double b_sqmag);
 
+//line intersection functions
+//endpoint a and endpoint b
+int GT_Point_intersect_segments_ab(GT_Point *out, GT_Point a_a, GT_Point a_b, GT_Point b_a, GT_Point b_b);
+//point p and offset o
+int GT_Point_intersect_segments_po(GT_Point *out, GT_Point a_p, GT_Point a_o, GT_Point b_p, GT_Point b_o);
+
+void GT_Point_tan_quadrant(GT_Point a, int *quadrant, double *angle);
+
 //common vectors
 extern GT_Point GT_Point_e1, GT_Point_e2, GT_Point_zero;
 
