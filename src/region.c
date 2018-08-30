@@ -335,21 +335,42 @@ void GT_forEachPaperNode(GT_TwistNode *exterior_node, void *data, void (*callbac
     callback((GT_TaggedNodePtr){.tag=GT_TwistTag, .twist=exterior_node, .back_i=exterior_node->n_sides}, data);
 }
 
-static void GT_deleteNode(GT_TaggedNodePtr tnp, void *data){
+static void deletePaper_addToCleanupList(GT_TaggedNodePtr tnp, GT_TaggedNodePtr *data){
     switch(tnp.tag){
         case GT_TwistTag:
-            free(tnp.twist);
+			GT_TwistNode_getAdjPleats(tnp.twist)[0] = *data;
+			*data = tnp;
             break;
         case GT_PleatTag:
-            free(tnp.pleat);
+			GT_PleatNode_getAdjNodes(tnp.pleat)[0] = *data;
+			*data = tnp;
             break;
         case GT_FlatTag:
-            free(tnp.flat);
+			GT_FlatNode_getAdjPleats(tnp.flat)[0] = *data;
+			*data = tnp;
             break;
     }
 }
 
 void GT_deletePaper(GT_TwistNode *exterior_node){
-    GT_forEachPaperNode(exterior_node, NULL, GT_deleteNode);
+	GT_FlatNode dummy = {.scratch_data= !exterior_node->scratch_data};
+	GT_TaggedNodePtr cleanup_head = {.tag=GT_FlatTag, .flat= &dummy};
+    GT_forEachPaperNode(exterior_node, &cleanup_head, (void(*)(GT_TaggedNodePtr, void*))deletePaper_addToCleanupList);
+    for(GT_TaggedNodePtr next; cleanup_head.tag != GT_FlatTag || cleanup_head.flat != &dummy; cleanup_head = next){
+		switch(cleanup_head.tag){
+			case GT_TwistTag:
+				next = GT_TwistNode_getAdjPleats(cleanup_head.twist)[0];
+				free(cleanup_head.twist);
+				break;
+			case GT_PleatTag:
+				next = GT_PleatNode_getAdjNodes(cleanup_head.pleat)[0];
+				free(cleanup_head.pleat);
+				break;
+			case GT_FlatTag:
+				next = GT_FlatNode_getAdjPleats(cleanup_head.flat)[0];
+				free(cleanup_head.flat);
+				break;
+		}
+	}
 }
 

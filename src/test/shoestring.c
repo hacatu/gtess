@@ -4,21 +4,9 @@
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 #include "point.h"
+#include "polygon.h"
 
 #define NUM_TRIALS 100
-
-static double computeAreaShoestring(size_t n, GT_Point points[static n]){
-    if(n < 3){
-        return 0;
-    }else if(n == 3){
-        return GT_Point_cross_abc(points[2], points[1], points[0]) / 2;
-    }
-    double a = GT_Point_cross(points[n - 1], points[0]);
-    for(size_t i = 1; i < n; ++i){
-        a += GT_Point_cross(points[i - 1], points[i]);
-    }
-    return a/2;
-}
 
 static double computeAreaTriangleSine(GT_Point points[static 3]){
     return GT_Point_sinangle_abc(points[1], points[0], points[2])
@@ -119,7 +107,7 @@ int main(){
     for(size_t i = 0; i < NUM_TRIALS; ++i){
         GT_Point points[3];
         double a1 = randomTriangle(points, rng);
-        double a2 = computeAreaShoestring(3, points);
+        double a2 = GT_Polygon_area(3, points);
         double a3 = computeAreaTriangleSine(points);
         double a4 = GT_Point_area(3, points[0], points[1], points[2]);
         double a5 = computeAreaTriangleSine2(points);
@@ -135,7 +123,7 @@ int main(){
     for(size_t i = 0; i < NUM_TRIALS; ++i){
         GT_Point points[4];
         double a = randomQuadrilateral(points, rng);
-        double b = computeAreaShoestring(4, points);
+        double b = GT_Polygon_area(4, points);
         double c = GT_Point_area(4, points[0], points[1], points[2], points[3]);
         if(fabs(a - b) < GT_EPSILON && fabs(a - c) < GT_EPSILON
            && checkInteriorAngles(4, points)){
