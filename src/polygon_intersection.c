@@ -188,7 +188,7 @@ static inline int GT_SLE_iterate_seg(GT_SLE_State *state, int which){
 	GT_SLE_Polygon *polygon = state->polygons + is_b;
 	GT_SLE_Polygon *other = state->polygons + !is_b;
 	int is_top = !(which & (GT_SLE_a_END | GT_SLE_b_END));
-	size_t step = is_top ? 1 : polygon->n - 1;
+	size_t step = is_top ? polygon->n - 1 : 1;
 	size_t *seg_ends = polygon->seg_ends[is_top];
 	seg_ends[0] = seg_ends[1];
 	if(seg_ends[0] == polygon->max_i){
@@ -207,14 +207,43 @@ static inline int GT_SLE_iterate_seg(GT_SLE_State *state, int which){
 		if(GT_Point_intersect_segments_open_ab(&p, polygon->points[seg_ends[0]], polygon->points[seg_ends[1]],
 		                                       other->points[other_ends[0]], other->points[other_ends[1]]) == 1){
 			GT_EventHeap_push(&state->events, (GT_SLE_Event){.p=p, .conditions= GT_SLE_CROSS_table[2*is_b + is_top][2*!is_b + j]});
-		}//we don't need to check for overlap anymore because overlap of an intersection of open segments implies the end of one of the polygons
+		}//we don't need to check for overlap anymore because overlap of an intersection of open segments implies the end of one of the polygons since they are convex and nondegenerate
+	}
+	return 1;
+}
+
+static inline int GT_SLE_init_events(GT_SLE_State *state){
+	GT_Point p;
+	for(int which = 1; which & GT_SLE_ANY_END; which <<= 1){
+		int is_b = !(which & (GT_SLE_a_END | GT_SLE_A_END));
+		int is_top = !(which & (GT_SLE_a_END | GT_SLE_b_END));
+		GT_SLE_Polygon *polygon = state->polygons + is_b;
+		p = polygon->points[polygon->seg_ends[is_top][1]];
+		size_t i = GT_EventHeap_linsearch(&state->events, p);
+		if(i == state->events.len){
+			GT_EventHeap_push(&state->events, (GT_SLE_Event){.p=p, .conditions=which});
+		}else{
+			state->events.buf[i].conditions |= which;
+		}
+	}
+	for(int a_top = 0; a_top < 2; ++a_top){
+		size_t *a_ends = state->polygons[0].seg_ends[a_top];
+		for(int b_top = 0; b_top < 2; ++b_top){
+			size_t *b_ends = state->polygons[1].seg_ends[b_top];
+			if(GT_Point_intersect_segments_open_ab(&p, state->polygons[0].points[a_ends[0]], state->polygons[0].points[a_ends[1]],
+			                                       state->polygons[1].points[b_ends[0]], state->polygons[1].points[b_ends[1]]) == 1){
+				GT_EventHeap_push(&state->events, (GT_SLE_Event){.p=p, .conditions= GT_SLE_CROSS_table[a_top][2 + b_top]});
+			}
+		}
 	}
 	return 1;
 }
 
 static inline int GT_SLE_scan_stateless(GT_SLE_State *state){
 	GT_SLE_Event e;
-	GT_EventHeap_pop(&state->events, &e);
+	if(!GT_EventHeap_pop(&state->events, &e)){
+		return 0;
+	}
 	double seg_ys[2][2];
 	for(size_t i = 0; i < 2; ++i){
 		const GT_SLE_Polygon *polygon = &state->polygons[i];
@@ -231,11 +260,11 @@ static inline int GT_SLE_scan_stateless(GT_SLE_State *state){
 	}
 	double max_overlap = seg_ys[0][1] > seg_ys[1][1] ? seg_ys[1][1] : seg_ys[0][1];
 	double min_overlap = seg_ys[0][0] < seg_ys[1][0] ? seg_ys[1][0] : seg_ys[0][0];
-	if(min_overlap <= max_overlap){
+	if(min_overlap - max_overlap <= GT_EPSILON){//min_overlap <= max_overlap but accounting for error in a way where GT_EPSILON doesn't get absorbed
 		if(fabs(e.p.y - min_overlap) < GT_EPSILON){
-			GT_Point_Queue_pusha(&state->points, e.p);
-		}else{
 			GT_Point_Queue_pushb(&state->points, e.p);
+		}else if(fabs(e.p.y - max_overlap) < GT_EPSILON){
+			GT_Point_Queue_pusha(&state->points, e.p);
 		}
 	}else if(state->points.len){
 		return 0;
@@ -266,7 +295,7 @@ static inline int GT_SLE_prepare_polygon(GT_SLE_Polygon *polygon){
 	polygon->seg_ends[0][1] = (min_i + 1)%polygon->n;
 	polygon->seg_ends[1][1] = (min_i + polygon->n - 1)%polygon->n;
 	polygon->max_i = max_i;
-	return GT_Polygon_area(polygon->n, polygon->points) > GT_EPSILON;//if it is smaller the polygon is either a line or listed clockwise
+	return GT_Polygon_dimension(polygon->n, polygon->points);
 }
 
 static inline int GT_SLE_scan_to_start(GT_SLE_State *state, int top){
@@ -283,6 +312,213 @@ static inline int GT_SLE_scan_to_start(GT_SLE_State *state, int top){
 	return 1;
 }
 
+static inline void swapPolygons(GT_SLE_State *state){
+	GT_SLE_Polygon t = state->polygons[0];
+	state->polygons[0] = state->polygons[1];
+	state->polygons[1] = t;
+}
+
+static inline int intersectPointPoint(GT_SLE_State *state){
+	if(!state->polygons[0].n || !state->polygons[1].n){
+		return 0;
+	}else if(!GT_Point_cmp_xy(state->polygons[0].points[0], state->polygons[1].points[0])){
+		GT_Point_Queue_pushb(&state->points, state->polygons[0].points[0]);
+		return 1;
+	}
+	return 0;
+}
+
+static inline int intersectPointLine(GT_SLE_State *state){
+	if(!state->polygons[0].n){
+		return 0;
+	}else if(GT_Point_cross_abc(state->polygons[0].points[0], state->polygons[1].points[state->polygons[1].seg_ends[1][0]], state->polygons[1].points[state->polygons[1].max_i])){
+		return 0;
+	}else if(GT_Point_cmp_xy(state->polygons[0].points[0], state->polygons[1].points[state->polygons[1].seg_ends[1][0]]) < 0){
+		return 0;
+	}else if(GT_Point_cmp_xy(state->polygons[0].points[0], state->polygons[1].points[state->polygons[1].max_i]) > 0){
+		return 0;
+	}
+	GT_Point_Queue_pushb(&state->points, state->polygons[0].points[0]);
+	return 1;
+}
+
+static inline int intersectLinePoint(GT_SLE_State *state){
+	swapPolygons(state);
+	return intersectPointLine(state);
+}
+
+static inline int intersectLineLine(GT_SLE_State *state){
+	GT_Point p;
+	switch(GT_Point_intersect_segments_closed_ab(&p,
+		state->polygons[0].points[state->polygons[0].seg_ends[1][0]],
+		state->polygons[0].points[state->polygons[0].max_i],
+		state->polygons[1].points[state->polygons[1].seg_ends[1][0]],
+		state->polygons[1].points[state->polygons[1].max_i])){
+		case 0: return 0;
+		case 1:
+			GT_Point_Queue_pushb(&state->points, p);
+			return 1;
+		case 2:
+		{
+			GT_Point ext_xy[2] = {state->polygons[0].points[state->polygons[0].seg_ends[1][0]],
+				state->polygons[0].points[state->polygons[0].max_i]};
+			p = state->polygons[1].points[state->polygons[1].seg_ends[1][0]];
+			if(GT_Point_cmp_xy(ext_xy[0], p) < 0){
+				ext_xy[0] = p;
+			}
+			p = state->polygons[1].points[state->polygons[1].max_i];
+			if(GT_Point_cmp_xy(ext_xy[1], p) > 0){
+				ext_xy[1] = p;
+			}
+			int ord = GT_Point_cmp_xy(ext_xy[0], ext_xy[1]);
+			for(size_t i = 0; i < 1 - ord; ++i){//append 0 points if there is no overlap, 1 point if the overlap is 1 point, and 2 points otherwise (ord can be -1, 0, or +1)
+				GT_Point_Queue_pushb(&state->points, ext_xy[i]);
+			}
+			return 1;
+		}
+		default: __builtin_unreachable();
+	}
+}
+
+static inline int intersectLineConvex(GT_SLE_State *state){
+	GT_Point crosses[2];
+	size_t crosses_len = 0;
+	GT_Point line_ends[2] = {state->polygons[0].points[state->polygons[0].seg_ends[1][0]],
+		state->polygons[0].points[state->polygons[0].max_i]};
+	const GT_Point *points = state->polygons[1].points;
+	size_t n = state->polygons[1].n, off_i = 0;
+	double last_cross;
+	while(1){
+		if((last_cross = GT_Point_cross_abc(points[off_i], line_ends[0], line_ends[1]))){
+			break;
+		}
+		++off_i;
+	};
+	for(size_t i = off_i + 1, j; i != off_i; i = (i + 1)%n){
+		double cross = GT_Point_cross_abc(points[i], line_ends[0], line_ends[1]);
+		if(cross == 0){
+			if(crosses_len){
+				crosses[1] = points[i];
+				crosses_len = 2;
+				break;
+			}else{
+				crosses[0] = points[i];
+				crosses_len = 1;
+			}
+			for(j = (i + 1)%n; j != off_i; j = (j + 1)%n){
+				cross = GT_Point_cross_abc(points[j], line_ends[0], line_ends[1]);
+				if(cross == 0){
+					crosses[1] = points[j];
+					crosses_len = 2;
+				}else if(j != (i + 1)%n){
+					if(GT_Point_cmp_xy(crosses[0], crosses[1]) > 0){
+						GT_Point tmp = crosses[0];
+						crosses[0] = crosses[1];
+						crosses[1] = tmp;
+					}
+					if(GT_Point_cmp_xy(crosses[0], line_ends[0]) < 0){
+						crosses[0] = line_ends[0];
+					}
+					if(GT_Point_cmp_xy(crosses[1], line_ends[1]) > 0){
+						crosses[1] = line_ends[1];
+					}
+					goto FOUND_TWO_INTERSECTIONS;
+				}else{
+					i = j;
+					break;
+				}
+			}
+		}else if(signbit(cross) != signbit(last_cross)){
+			int status = GT_Point_intersect_segments_closed_ab(crosses + crosses_len, line_ends[0], line_ends[1], points[(i + n - 1)%n], points[i]);
+			if(status){
+				if(++crosses_len == 2){
+					break;
+				}
+			}
+		}
+		last_cross = cross;
+	}
+	if(crosses_len == 2 && (GT_Point_cmp_xy(crosses[1], line_ends[0]) < 0 || GT_Point_cmp_xy(crosses[1], line_ends[1]) > 0)){
+		--crosses_len;
+	}
+	if(crosses_len && (GT_Point_cmp_xy(crosses[0], line_ends[0]) < 0 || GT_Point_cmp_xy(crosses[0], line_ends[1]) > 0)){
+		crosses[0] = crosses[1];
+		--crosses_len;
+	}
+	switch(crosses_len){
+		case 0:
+			if(GT_Polygon_contains(n, points, line_ends[0], 0)){
+				for(size_t i = 0; i < 2; ++i){
+					GT_Point_Queue_pushb(&state->points, line_ends[i]);
+				}
+				return 1;
+			}
+			return 0;
+		case 1:
+			GT_Point_Queue_pushb(&state->points, crosses[0]);
+			for(size_t i = 0; i < 2; ++i){
+				if(GT_Polygon_contains(n, points, line_ends[i], 0)){
+					GT_Point_Queue_pushb(&state->points, line_ends[i]);
+					return 1;
+				}
+			}
+			return 1;
+		case 2:
+			FOUND_TWO_INTERSECTIONS:;
+			for(size_t i = 0; i < 2; ++i){
+				GT_Point_Queue_pushb(&state->points, crosses[i]);
+			}
+			return 1;
+		default: __builtin_unreachable();
+	}
+}
+
+static inline int intersectConvexLine(GT_SLE_State *state){
+	swapPolygons(state);
+	return intersectLineConvex(state);
+}
+
+static inline int intersectConvexConvex(GT_SLE_State *state){
+	if(state->polygons[1].points[state->polygons[1].seg_ends[1][0]].x < state->polygons[0].points[state->polygons[0].seg_ends[1][0]].x){
+		swapPolygons(state);
+	}
+	if(!GT_SLE_scan_to_start(state, 0)){
+		return 0;
+	}else if(!GT_SLE_scan_to_start(state, 1)){
+		return 0;
+	}
+	GT_SLE_init_events(state);
+	while(state->state_fn(state));
+	return !!state->points.len;
+}
+
+static inline int intersectPointConvex(GT_SLE_State *state){
+	if(!state->polygons[0].n){
+		return 0;
+	}else if(!GT_Polygon_contains(state->polygons[1].n, state->polygons[1].points, state->polygons[0].points[0], 0)){
+		return 0;
+	}
+	GT_Point_Queue_pushb(&state->points, state->polygons[0].points[0]);
+	return 1;
+}
+
+static inline int intersectConvexPoint(GT_SLE_State *state){
+	swapPolygons(state);
+	return intersectPointConvex(state);
+}
+
+static int (*const intersectors[3][3])(GT_SLE_State *state) = {
+	[0][0]=intersectPointPoint,
+	[0][1]=intersectPointLine,
+	[1][0]=intersectLinePoint,
+	[0][2]=intersectPointConvex,
+	[2][0]=intersectConvexPoint,
+	[1][1]=intersectLineLine,
+	[1][2]=intersectLineConvex,
+	[2][1]=intersectConvexLine,
+	[2][2]=intersectConvexConvex,
+};
+
 size_t GT_Polygon_intersectConvex(GT_Point *points_c, size_t n_a, const GT_Point points_a[static n_a], size_t n_b, const GT_Point points_b[static n_b]){
 	GT_SLE_Event _event_buf[8];
 	GT_SLE_State state = {
@@ -292,21 +528,9 @@ size_t GT_Polygon_intersectConvex(GT_Point *points_c, size_t n_a, const GT_Point
 		.events={.buf=_event_buf, .cap=8},
 		.state_fn=GT_SLE_scan_stateless,
 	};
-	int a_line = !GT_SLE_prepare_polygon(state.polygons);
-	int b_line = !GT_SLE_prepare_polygon(state.polygons + 1);
-	if(a_line || b_line){
-		//handle simple case
-	}
-	if(points_b[state.polygons[1].seg_ends[1][0]].x < points_a[state.polygons[0].seg_ends[1][0]].x){
-		GT_SLE_Polygon t = state.polygons[0];
-		state.polygons[0] = state.polygons[1];
-		state.polygons[1] = t;
-	}
-	if(!GT_SLE_scan_to_start(&state, 0)){
-		return 0;
-	}
-	GT_SLE_scan_to_start(&state, 1);
-	while(state.state_fn(&state));
+	int a_dim = GT_SLE_prepare_polygon(state.polygons);
+	int b_dim = GT_SLE_prepare_polygon(state.polygons + 1);
+	intersectors[a_dim][b_dim](&state);
 	GT_Point_Queue_canonicalize(&state.points);
 	return state.points.len;
 }

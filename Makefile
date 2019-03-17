@@ -3,12 +3,12 @@ LD := gcc
 AR := ar
 #CFLAGS_RELEASE := -Wall -std=c99 -Iinclude -Ofast -ffast-math -mtune=native -march=native
 CFLAGS_RELEASE := -Wall -std=c99 -Iinclude -Og -g3
-#LDFLAGS_RELEASE := -Ofast -ffast-math -mtune=native -march=native -flto -fuse-ld=gold -lm -lgsl -lgslcblas
-LDFLAGS_RELEASE := -Og -g3 -lm -lgsl -lgslcblas
-CFLAGS_DEBUG := -Wall -std=c99 -Iinclude -Og -g3 --coverage
-LDFLAGS_DEBUG := --coverage -lm -lgsl  -lgslcblas
-TEST_CFLAGS := -Wall -std=c99 -Iinclude -Og -g3
-TEST_LDFLAGS := --coverage -lm -lgsl -lgslcblas
+#LDFLAGS_RELEASE := -Ofast -ffast-math -mtune=native -march=native -flto -fuse-ld=gold -lm -lgsl -lgslcblas -lSDL2 -lSDL2_image -lSDL2_gfx
+LDFLAGS_RELEASE := -Og -g3 -lm -lgsl -lgslcblas -lSDL2 -lSDL2_image -lSDL2_gfx
+CFLAGS_DEBUG := -Wall -std=c99 -Iinclude -g3 --coverage
+LDFLAGS_DEBUG := --coverage -lm -lgsl  -lgslcblas -lSDL2 -lSDL2_image -lSDL2_gfx
+TEST_CFLAGS := -Wall -std=c99 -Iinclude -g3
+TEST_LDFLAGS := --coverage -lm -lgsl -lgslcblas -lSDL2 -lSDL2_image -lSDL2_gfx
 BUILD_ROOT := $(shell pwd)
 SOURCES := $(shell find src -maxdepth 1 -name '*.c')
 TEST_SOURCES := $(shell find src/test -maxdepth 1 -name '*.c')
