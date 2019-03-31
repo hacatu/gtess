@@ -74,6 +74,7 @@ int main(){
     gsl_rng *rng = gsl_rng_alloc(rng_T);
 	GT_Viewport vp = {.screen_width=SCREEN_WIDTH, .screen_height=SCREEN_HEIGHT, .renderer=renderer, .scale_factor=1.};
 	GT_Polygon poly = {};
+	int making_shape = 0;
 	for(int dirty = 1; 1; dirty = 0){
 		for(SDL_Event e; SDL_PollEvent(&e);){
 			if(e.type == SDL_QUIT){
@@ -83,18 +84,22 @@ int main(){
 			}else if(e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT){
 				int x, y;
 				SDL_GetMouseState(&x, &y);
+				if(!making_shape){
+					making_shape = 1;
+					poly.len = 0;
+				}
 				GT_Polygon_append(&poly, GT_Interactive_fromScreen(&vp, x, y));//TODO: check for failed alloc
 				SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xFF);
 				SDL_RenderClear(renderer);
 				GT_Interactive_drawPolygonRGBA(&vp, poly, 0xFF, 0x00, 0xFF, 0xFF);
 				dirty = 1;
 			}else if(e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_RIGHT){
-				if(poly.cap < 4){
-					poly.cap = 4;
-					poly.points = realloc(poly.points, poly.cap*sizeof(GT_Point));//TODO: check for failed alloc
-				}
-				randomQuadrilateral(poly.points, rng);
-				poly.len = 4;
+				making_shape = 0;
+				size_t bi;
+				double A = randomConvexNGonWithDiameter(&bi, poly.len, poly.points, GT_Point_e1, (GT_Point){-1., 0.}, rng);
+				printf("area by builtin trapezoid decomp: %f\n", A);
+				A = GT_Polygon_area(poly.len, poly.points);
+				printf("area by shoestring method: %f\n", A);
 				GT_Interactive_updateContentBounds(&vp, poly.len, poly.points);
 				SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xFF);
 				SDL_RenderClear(renderer);

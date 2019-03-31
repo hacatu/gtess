@@ -19,7 +19,11 @@ double initQuadrilateral(GT_Point points[static 4], GT_Point o, double angle, do
                                 
 double randomQuadrilateral(GT_Point points[static 4], gsl_rng *rng);
 
-double randomNGonWithDiameter(size_t n, GT_Point points[static n], GT_Point a, GT_Point b, gsl_rng *rng);
+double randomConvexNGonWithDiameter(size_t *bi, size_t n, GT_Point points[static n], GT_Point a, GT_Point b, gsl_rng *rng);
+
+double randomConvexNGon(size_t *bi, size_t n, GT_Point points[static n], gsl_rng *rng);
+
+GT_Point randomPointIn(size_t n, size_t bi, GT_Point points[static n], double A, gsl_rng *rng);
 
 #endif
 
