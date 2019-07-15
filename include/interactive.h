@@ -46,15 +46,23 @@ int GT_Interactive_loadTexture(GT_Interactive *self, const char *name, const cha
 SDL_Texture *GT_Interactive_getTexture(GT_Interactive *self, const char *name);
 
 int GT_Hitrect_contains(GT_Hitrect hitrect, GT_Point p);
+
 //returns len on not found
 size_t GT_Hitrect_findTargetIndex(size_t len, const GT_Hitrect hitrects[static len], GT_Point p);
 void *GT_Hitrect_findTargetEnt(size_t len, const GT_Hitrect hitrects[static len], GT_Point p);
 
+GT_Point GT_Hitrect_clamp(GT_Hitrect hitrect, GT_Point p);
+double GT_clamp(double a, double x, double b);
+
 void GT_Interactive_updateContentBounds(GT_Viewport *self, size_t len, const GT_Point points[static len]);
+void GT_Interactive_expandContentBounds(GT_Viewport *self, size_t len, const GT_Point points[static len]);
 void GT_Interactive_updateScaleFactor(GT_Viewport *self);
 
 GT_Point GT_Interactive_toScreen(const GT_Viewport *self, GT_Point p);
 GT_Point GT_Interactive_fromScreen(const GT_Viewport *self, int x, int y);
+
+GT_Hitrect GT_Hitrect_fromSDL(SDL_Rect rect, void *ent);
+SDL_Rect GT_Hitrect_toSDL(GT_Hitrect hitrect);
 
 void GT_Interactive_drawPolygonRGBA(GT_Viewport *vp, GT_Polygon poly, Uint8 r, Uint8 g, Uint8 b, Uint8 a);
 

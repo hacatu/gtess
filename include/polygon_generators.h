@@ -24,6 +24,7 @@ double randomConvexNGonWithDiameter(size_t *bi, size_t n, GT_Point points[static
 double randomConvexNGon(size_t *bi, size_t n, GT_Point points[static n], gsl_rng *rng);
 
 GT_Point randomPointIn(size_t n, size_t bi, GT_Point points[static n], double A, gsl_rng *rng);
+GT_Point randomPointGaussian(GT_Point o, double r, gsl_rng *rng);
 
 #endif
 

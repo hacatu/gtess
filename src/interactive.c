@@ -80,10 +80,10 @@ SDL_Texture *GT_Interactive_getTexture(GT_Interactive *self, const char *name){
 }
 
 int GT_Hitrect_contains(GT_Hitrect hitrect, GT_Point p){
-	return (p.x - hitrect.min_x <= GT_EPSILON) &&
-		(hitrect.max_x - p.x <= GT_EPSILON) &&
-		(p.y - hitrect.min_y <= GT_EPSILON) &&
-		(hitrect.max_y - p.y <= GT_EPSILON);
+	return (hitrect.min_x - p.x <= GT_EPSILON) &&
+		(p.x - hitrect.max_x <= GT_EPSILON) &&
+		(hitrect.min_y - p.y <= GT_EPSILON) &&
+		(p.y - hitrect.max_y <= GT_EPSILON);
 }
 
 size_t GT_Hitrect_findTargetIndex(size_t len, const GT_Hitrect hitrects[static len], GT_Point p){
@@ -104,12 +104,28 @@ void *GT_Hitrect_findTargetEnt(size_t len, const GT_Hitrect hitrects[static len]
 	return NULL;
 }
 
+GT_Point GT_Hitrect_clamp(GT_Hitrect hitrect, GT_Point p){
+	return (GT_Point){
+		GT_clamp(hitrect.min_x, p.x, hitrect.max_x),
+		GT_clamp(hitrect.min_y, p.y, hitrect.max_y)
+	};
+}
+
+double GT_clamp(double a, double x, double b){
+	return x < a ? a : x > b ? b : x;
+}
+
 void GT_Interactive_updateContentBounds(GT_Viewport *self, size_t len, const GT_Point points[static len]){
 	if(!len){
 		return;
 	}
 	self->min_x = self->max_x = points[0].x;
 	self->min_y = self->max_y = points[0].y;
+	GT_Interactive_expandContentBounds(self, len, points);
+}
+
+
+void GT_Interactive_expandContentBounds(GT_Viewport *self, size_t len, const GT_Point points[static len]){
 	for(size_t i = 1; i < len; ++i){
 		if(points[i].x < self->min_x){
 			self->min_x = points[i].x;
@@ -152,6 +168,21 @@ GT_Point GT_Interactive_fromScreen(const GT_Viewport *self, int x, int y){
 	return (GT_Point){
 		x/self->scale_factor + self->min_x,
 		self->max_y - y/self->scale_factor
+	};
+}
+
+GT_Hitrect GT_Hitrect_fromSDL(SDL_Rect rect, void *ent){
+	return (GT_Hitrect){
+		.min_x= rect.x, .max_x= rect.x + rect.w,
+		.min_y= rect.y, .max_y= rect.y + rect.h,
+		.ent=ent
+	};
+}
+
+SDL_Rect GT_Hitrect_toSDL(GT_Hitrect hitrect){
+	return (SDL_Rect){
+		.x= hitrect.min_x, .w= hitrect.max_x - hitrect.min_x,
+		.y= hitrect.min_y, .h= hitrect.max_y - hitrect.min_y
 	};
 }
 

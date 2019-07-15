@@ -58,22 +58,6 @@ static const int GT_SLE_CROSS_table[4][4] = {
 	[3][1] = GT_SLE_AB_CROSS,
 };
 
-static inline size_t gcd(size_t a, size_t b){
-	if(a < b){
-		b %= a;
-	}
-	while(1){
-		if(!b){
-			return a;
-		}
-		a %= b;
-		if(!a){
-			return b;
-		}
-		b %= a;
-	}
-}
-
 static inline int GT_Point_Queue_pusha(GT_Point_Queue *self, GT_Point p){
 	if(self->len == self->cap){
 		return 0;
@@ -103,7 +87,7 @@ static inline void GT_Point_Queue_canonicalize(GT_Point_Queue *self){
 		memmove(self->buf + self->cap - self->a, self->buf, self->b*sizeof(GT_Point));
 		memcpy(self->buf, self->buf + self->a, (self->cap - self->a)*sizeof(GT_Point));
 	}else{
-		size_t orbits = gcd(self->cap, self->cap - self->a);
+		size_t orbits = GT_gcd(self->cap, self->cap - self->a);
 		for(size_t i = 0, j = i; i < orbits; j = ++i){
 			GT_Point p = self->buf[i];
 			while(1){
@@ -533,5 +517,79 @@ size_t GT_Polygon_intersectConvex(GT_Point *points_c, size_t n_a, const GT_Point
 	intersectors[a_dim][b_dim](&state);
 	GT_Point_Queue_canonicalize(&state.points);
 	return state.points.len;
+}
+
+int GT_Halfplane_intersectHalfplane(GT_Point *out, GT_Halfplane a, GT_Halfplane b){
+	GT_Point a_p = a.point, b_p = b.point, a_o = GT_Point_ccw(a.in_normal), b_o = GT_Point_ccw(b.in_normal);
+	double det = GT_Point_cross(a_o, b_o);
+	if(fabs(det) < GT_EPSILON){
+		if(fabs(GT_Point_cross(GT_Point_sub(b_p, a_p), a_o)) < GT_EPSILON){//collinear
+			*out = GT_Point_midpoint(a_p, b_p);
+			return 2;
+		}
+		return 0;
+	}
+	double t = GT_Point_cross(GT_Point_sub(b_p, a_p), a_o)/det;
+	*out = GT_Point_add(a_p, GT_Point_scale(a_o, t));
+	return 1;
+}
+
+int GT_Halfplane_intersectSegment(GT_Point *out, GT_Halfplane halfplane, GT_Point a, GT_Point b){
+	GT_Point a_p = halfplane.point, b_p = a, a_o = GT_Point_ccw(halfplane.in_normal), b_o = GT_Point_sub(b, a);
+	double det = GT_Point_cross(a_o, b_o);
+	if(fabs(det) < GT_EPSILON){
+		if(fabs(GT_Point_cross(GT_Point_sub(b_p, a_p), a_o)) < GT_EPSILON){//collinear
+			*out = GT_Point_midpoint(a, b);
+			return 2;
+		}
+		return 0;
+	}
+	double t = GT_Point_cross(GT_Point_sub(b_p, a_p), a_o)/det;
+	double u = GT_Point_cross(GT_Point_sub(b_p, a_p), b_o)/det;
+	if(0 <= u && u <= 1){
+		*out = GT_Point_add(a_p, GT_Point_scale(a_o, t));
+		return 1;
+	}
+	return 0;
+}
+
+size_t GT_Polygon_intersectConvexHalfplane(GT_Point *out, size_t n, const GT_Point points[static n], GT_Halfplane halfplane){
+	size_t j = 0, i = 0;
+	if(GT_Halfplane_contains(halfplane, points[0])){
+		do{
+			out[j++] = points[i++];
+			if(i == n){
+				return n;
+			}
+		}while(GT_Halfplane_contains(halfplane, points[i]));
+		GT_Halfplane_intersectSegment(out + j++, halfplane, points[i - 1], points[i]);
+		++i;
+		for(; i < n; ++i){
+			if(GT_Halfplane_contains(halfplane, points[i])){
+				break;
+			}
+		}
+		if(i == n){
+			GT_Halfplane_intersectSegment(out + j++, halfplane, points[n - 1], points[0]);
+			return j;
+		}
+		GT_Halfplane_intersectSegment(out + j++, halfplane, points[i - 1], points[i]);
+		while(i < n){
+			out[j++] = points[i++];
+		}
+		return j;
+	}
+	for(i = 1; i < n; ++i){
+		if(GT_Halfplane_contains(halfplane, points[i])){
+			break;
+		}
+	}
+	if(i == n){
+		return 0;
+	}
+	do{
+		out[j++] = points[i++];
+	}while(i < n && GT_Halfplane_contains(halfplane, points[i]));
+	return j;
 }
 

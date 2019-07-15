@@ -196,22 +196,47 @@ GT_Point randomPointIn(size_t n, size_t bi, const GT_Point points[static n], dou
 		double b = pi1l - pil;
 		dA = (pit + pi1t)*b/2;
 		if(w < dA){
-			w /= dA;
-			double x = b*(sqrt(pi1t*pi1t + w*(pit - pi1t)*(pit + pi1t)) - pi1t)/(pit - pi1t);
-			//our randomly selected point will have d coordinate x starting from pi
-			double y = (x*pit + (b - x)*pi1t)*gsl_ran_flat(rng, 0, 1)/b;
-			return GT_Point_add(pi, GT_Point_lincomb2(d, x, dt, y));
+			w /= dA;//since a uniform(0, A) random variable is equivalent to picking a trapezoid weighted by area dA and then a uniform(0, dA) rv,
+			//we normalize the uniform(0, dA) part to a uniform(0, 1) part.  Then if y is the dt coordinate and x the d coordinant of the point,
+			//we can pick y uniformly from the slice of the trapezoid at d=x once we have y, so we have to compute the marginal cdf for x and invert
+			//it so we can turn a probability index (ie uniform(0, 1) rv such as w) into an evenly distributed x value.
+			//if a is the trailing side length and c is the leading side length,
+			//P(d <= x) = (area of partial trapezoid up to x)/(area of entire trapezoid) = (a + ((c - a)*x/b + a))*x/2 / (dA = (a + c)*b/2)
+			//= (2*b*a*x + (c - a)*x^2 / (a + c)*b^2, and we invert to find x in terms of P,
+			//0 = (c - a)*x^2 + 2*b*a*x - (a + c)*b^2*P, x = (-2*b*a +/- sqrt(4*b^2*a^2 + 4*b^2*(c - a)*(a + c)*P))/2*(c - a)
+			//= b*(-a +/- sqrt(a^2 + (c - a)*(a + c)*P))/(c - a).  So now we just have to pick + or - (also the c = a case should be accounted for)
+			//dt is a clockwise transpose of d so this is a left handed coordinate basis (I'm not sure why I picked that instead of a ccw rotation,
+			//it was probably because in graphics the y axis is left handed) and we start going from points[0] counterclockwise around the polygon through points[bi]
+			//and all the way to points[n-1].
+			//This means for i + 1 <= b we have trapezoids under the diameter so the d coordinate of the sides is increasing and they are on the positive dt side.
+			//For i >= b we have trapezoids over the diameter so the d coordinate of the sides is decreasing and they are on the negative dt side.
+			//This means b = pi1l - pil, the change in the d coordiate from point i to point i + 1, has the same sign as pit and pi1t.
+			//We need x to have the same sign as b = pi1l - pil so that when we move x in the d direction we move from point i towards point i + 1.
+			//When a and c are positive (the before bi case), assume c > a so c^2 > a^2 so x is positive if we pick +.
+			//When a and c are negative (the after bi case), assume c < a so c^2 > a^2 so the numerator (besides b) has the sign we choose so x is negative if we pick -.
+			//I checked those and the flipped a vs c cases by graphing the x vs P curve and it checks out.
+			double x = b*(copysign(sqrt(pi1t*pi1t + w*(pit - pi1t)*(pit + pi1t)), b) - pi1t)/(pit - pi1t);
+			//our randomly selected point will have d coordinate x starting from pi projected onto the diameter
+			//now the "top" of the trapezoid at x is pit + (pi1t - pit)*x/b
+			double y = (pit + (pi1t - pit)*x/b)*gsl_ran_flat(rng, 0, 1);
+			return GT_Point_add(a, GT_Point_lincomb2(d, x + pil, dt, y));
 		}
 		w -= dA;
 	}
+	//if we have reached the last trapezoid, it is actually one of the triangles (the first trapezoid is also a triangle but I didn't special case it).
+	//We compuete more simply as an offset from a
 	GT_Point pi = GT_Point_sub(points[n - 1], a);
 	double pil = GT_Point_dot(pi, d);//p_i parallel part
 	double pit = GT_Point_dot(pi, dt);//p_i perpendicular part
 	dA = -pit*pil/2;
 	w /= dA;
-	double x = -pil*sqrt(w);
-	//our randomly selected point will have d coordinate x starting from pi
-	double y = -x*pit*gsl_ran_flat(rng, 0, 1)/pil;
-	return GT_Point_add(pi, GT_Point_lincomb2(d, x, dt, y));
+	double x = pil*sqrt(w);
+	//our randomly selected point will have d coordinate x starting from a
+	double y = x*pit*gsl_ran_flat(rng, 0, 1)/pil;
+	return GT_Point_add(a, GT_Point_lincomb2(d, x, dt, y));
+}
+
+GT_Point randomPointGaussian(GT_Point o, double r, gsl_rng *rng){
+	return (GT_Point){.x= o.x + gsl_ran_gaussian(rng, r), .y= o.y + gsl_ran_gaussian(rng, r)};
 }
 
