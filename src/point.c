@@ -325,3 +325,10 @@ int GT_Point_cmp_fn_x(const void *a, const void *b){
 
 GT_Point GT_Point_e1 = {1, 0}, GT_Point_e2 = {0, 1}, GT_Point_zero = {0, 0}, GT_Point_neg1_polar = {M_PI, 1};
 
+GT_Point GT_Point_dir[4] = {
+	[GT_Direction_right]={1, 0},
+	[GT_Direction_up]={0, 1},
+	[GT_Direction_left]={-1, 0},
+	[GT_Direction_down]={0, -1}
+};
+

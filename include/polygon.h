@@ -15,6 +15,7 @@ typedef struct{
 
 int GT_Polygon_checkConvex(size_t n, const GT_Point points[static n], int cw);
 int GT_Polygon_checkOrigin(size_t n, const GT_Point points[static n], int cw);
+int GT_Polygon_checkOrigin_strided(size_t n, size_t stride, const void *buf, int cw);
 int GT_Polygon_contains(size_t n, const GT_Point points[static n], GT_Point p, int cw);
 int GT_Halfplane_contains(GT_Halfplane halfplane, GT_Point p);
 double GT_Polygon_area(size_t n, const GT_Point points[static n]);
@@ -29,6 +30,8 @@ int GT_Halfplane_equal(GT_Halfplane a, GT_Halfplane b);
 
 double GT_Polygon_diameter(size_t n, const GT_Point points[static n], size_t *ai, size_t *bi, int cw);
 size_t GT_Polygon_dimension(size_t n, const GT_Point points[static n]);
+GT_Point GT_Polygon_interiorPoint(size_t n, const GT_Point points[static n]);
+GT_Point GT_Polygon_centroid(size_t n, const GT_Point points[static n]);
 size_t GT_Polygon_intersectConvex(GT_Point *points_c, size_t n_a, const GT_Point points_a[static n_a], size_t n_b, const GT_Point points_b[static n_b]);
 size_t GT_Polygon_intersectConvexHalfplane(GT_Point *out, size_t n, const GT_Point points[static n], GT_Halfplane halfplane);
 int GT_Halfplane_intersectHalfplane(GT_Point *out, GT_Halfplane a, GT_Halfplane b);

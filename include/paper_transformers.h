@@ -4,8 +4,8 @@
 #include <stdio.h>
 #include "region.h"
 
-GT_TaggedNodePtr GT_findPaperRegion(GT_TwistNode *external_node, GT_Point a);
-GT_TwistNode *GT_FlatNode_spliceInTwist(GT_FlatNode *flat_node, GT_TwistNode *twist_node);
+GT_TaggedRegionPtr GT_findPaperRegion(GT_TwistRegion *external, GT_Point a);
+GT_TwistRegion *GT_FlatNode_spliceInTwist(GT_FlatRegion *flat_region, GT_TwistRegion *twist_region);
 
 #endif //GTESS_PAPER_TRANSFORMERS_H
 

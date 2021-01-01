@@ -25,6 +25,17 @@ int GT_Polygon_checkOrigin(size_t n, const GT_Point points[static n], int cw){
 	return 1;
 }
 
+int GT_Polygon_checkOrigin_strided(size_t n, size_t stride, const void *buf, int cw){
+	if(n < 2){
+		return !n || GT_Point_sqmag(*(const GT_Point*)buf) < GT_EPSILON;
+	}else for(size_t i = 0; i < n; ++i){
+		if((cw ? -1 : 1)*GT_Point_cross(*(const GT_Point*)(buf + i*stride), *(const GT_Point*)(buf + (i + 1)%n*stride)) < GT_EPSILON){
+			return 0;
+		}
+	}
+	return 1;
+}
+
 int GT_Polygon_contains(size_t n, const GT_Point points[static n], GT_Point p, int cw){
 	if(n < 2){
 		return !n || GT_Point_sqdist(points[0], p) < GT_EPSILON;
@@ -326,6 +337,43 @@ double GT_Polygon_diameter(size_t n, const GT_Point points[static n], size_t *ai
 		}
 	}
 	return sqrt(sqdiam);
+}
+
+GT_Point GT_Polygon_interiorPoint(size_t n, const GT_Point points[static n]){
+	GT_Point triangle[3];
+	if(!n){
+		return (GT_Point){NAN, NAN};
+	}
+	triangle[0] = points[0];
+	size_t i;
+	for(i = 0; i < n; ++i){
+		if(GT_Point_sqdist(triangle[0], points[i]) >= GT_EPSILON){
+			triangle[1] = points[i++];
+			break;
+		}
+	}
+	if(i == n){
+		return (GT_Point){NAN, NAN};
+	}
+	for(i < n; ++i){
+		if(fabs(GT_Point_cross_abc(triangle[0], triangle[1], points[i])) >= GT_EPSILON){
+			triangle[2] = points[i];
+			break;
+		}
+	}
+	if(i == n){
+		return (GT_Point){NAN, NAN};
+	}
+	return GT_Polygon_centroid(3, triangle);
+}
+
+GT_Point GT_Polygon_centroid(size_t n, const GT_Point points[static n]){
+	double x = 0, y = 0, f = 1./n;
+	for(size_t i = 0; i < n; ++i){
+		x += f*points[i].x;
+		y += f*points[i].y;
+	}
+	return (GT_Point){x, y};
 }
 
 uint64_t GT_gcd(uint64_t a, uint64_t b){

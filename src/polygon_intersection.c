@@ -27,6 +27,7 @@ typedef struct{
 struct GT_SLE_State{
 	GT_SLE_Polygon polygons[2];
 	GT_Point_Queue points;
+	size_t boundary_intersections;
 	GT_EventHeap events;
 	int (*state_fn)(GT_SLE_State *state);
 };
@@ -253,6 +254,9 @@ static inline int GT_SLE_scan_stateless(GT_SLE_State *state){
 	}else if(state->points.len){
 		return 0;
 	}
+	if(e.conditions & GT_SLE_ANY_CROSS){
+		++state->boundary_intersections;
+	}
 	int status = 1;
 	for(int which = 1; which & GT_SLE_ANY_END; which <<= 1){
 		if(which & e.conditions){
@@ -341,6 +345,7 @@ static inline int intersectLineLine(GT_SLE_State *state){
 		case 0: return 0;
 		case 1:
 			GT_Point_Queue_pushb(&state->points, p);
+			state->boundary_intersections = 1;
 			return 1;
 		case 2:
 		{
@@ -358,6 +363,7 @@ static inline int intersectLineLine(GT_SLE_State *state){
 			for(size_t i = 0; i < 1 - ord; ++i){//append 0 points if there is no overlap, 1 point if the overlap is 1 point, and 2 points otherwise (ord can be -1, 0, or +1)
 				GT_Point_Queue_pushb(&state->points, ext_xy[i]);
 			}
+			state->boundary_intersections = 2;
 			return 1;
 		}
 		default: __builtin_unreachable();
@@ -429,6 +435,7 @@ static inline int intersectLineConvex(GT_SLE_State *state){
 		crosses[0] = crosses[1];
 		--crosses_len;
 	}
+	state->boundary_intersections = crosses_len;
 	switch(crosses_len){
 		case 0:
 			if(GT_Polygon_contains(n, points, line_ends[0], 0)){
@@ -503,12 +510,14 @@ static int (*const intersectors[3][3])(GT_SLE_State *state) = {
 	[2][2]=intersectConvexConvex,
 };
 
-size_t GT_Polygon_intersectConvex(GT_Point *points_c, size_t n_a, const GT_Point points_a[static n_a], size_t n_b, const GT_Point points_b[static n_b]){
+size_t GT_Polygon_intersectConvex(GT_Point *points_c, size_t *boundary_intersections,
+                                  size_t n_a, const GT_Point points_a[static n_a], size_t n_b, const GT_Point points_b[static n_b]){
 	GT_SLE_Event _event_buf[8];
 	GT_SLE_State state = {
 		.polygons[0]={.points=points_a, .n=n_a},
 		.polygons[1]={.points=points_b, .n=n_b},
 		.points={.buf=points_c, .cap= n_a + n_b},
+		.boundary_intersections=0,
 		.events={.buf=_event_buf, .cap=8},
 		.state_fn=GT_SLE_scan_stateless,
 	};
@@ -516,6 +525,9 @@ size_t GT_Polygon_intersectConvex(GT_Point *points_c, size_t n_a, const GT_Point
 	int b_dim = GT_SLE_prepare_polygon(state.polygons + 1);
 	intersectors[a_dim][b_dim](&state);
 	GT_Point_Queue_canonicalize(&state.points);
+	if(boundary_intersections){
+		*boundary_intersections = state.boundary_intersections;
+	}
 	return state.points.len;
 }
 

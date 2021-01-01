@@ -8,6 +8,13 @@ typedef struct{
     double x, y;
 } GT_Point;
 
+typedef enum{
+	GT_Direction_right,
+	GT_Direction_up,
+	GT_Direction_left,
+	GT_Direction_down
+} GT_Direction;
+
 //basic arithmetic functions
 GT_Point GT_Point_add(GT_Point a, GT_Point b);
 GT_Point GT_Point_sub(GT_Point a, GT_Point b);
@@ -78,6 +85,7 @@ int GT_Point_cmp_fn_x(const void *a, const void *b);
 
 //common points
 extern GT_Point GT_Point_e1, GT_Point_e2, GT_Point_zero, GT_Point_neg1_polar;
+extern GT_Point GT_Point_dir[4];
 
 #endif //GTESS_POINT_H
 
