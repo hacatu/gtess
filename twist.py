@@ -8,6 +8,7 @@ from collections import defaultdict
 import operator
 import functools
 import copy
+from enum import IntEnum
 
 GT_EPSILON = 1e-8
 WIDTH = 800
@@ -40,31 +41,10 @@ pygame.init()
 screen = pygame.display.set_mode((WIDTH, WIDTH))
 pygame.display.set_caption("Gtess")
 
+class Drawable:
+	pass
 
-class FlowerTowerUnit:
-	def __init__(self, n, r=1, z=0J):
-		self.twist_vs = [cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
-		self.inner_vs = [0.5/cmath.cos(cmath.pi/n)*cmath.exp(2*cmath.pi*(i/n + 0.5/n)*1J) for i in range(n)]
-		self.m_inner_vs = [(2*cmath.cos(cmath.pi/n) - 0.5/cmath.cos(cmath.pi/n))*cmath.exp(2*cmath.pi*(i/n + 0.5/n)*1J) for i in range(n)]
-		self.outer_vs = [2*cmath.cos(cmath.pi/n)*cmath.exp(2*cmath.pi*(i/n + 0.5/n)*1J) for i in range(n)]
-		self.twist_cs = [cmath.cos(cmath.pi/n)*cmath.exp(2*cmath.pi*(i/n + 0.5/n)*1J) for i in range(n)]
-		self.outer_cs = [2*cmath.cos(cmath.pi/n)**2*cmath.exp(2*cmath.pi*(i/n)*1J) for i in range(n)]
-		x_outer_ps = intersectLines(self.m_inner_vs[0], self.outer_cs[0] - self.m_inner_vs[0], self.twist_vs[0], self.outer_vs[0] - self.twist_vs[0])
-		self.x_outer_ps = [x_outer_ps*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
-		lpleat_vs = self.outer_cs[0] + abs(self.outer_vs[0] - self.outer_cs[0])/2**.5*cmath.exp(cmath.pi/4*1J)
-		rpleat_vs = lpleat_vs.conjugate()
-		self.lpleat_vs = [lpleat_vs*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
-		self.rpleat_vs = [rpleat_vs*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
-		if r != 1:
-			FlowerTowerUnit.__imul__(self, r)
-		if z != 0J:
-			FlowerTowerUnit.__iadd__(self, z)
-	
-	def transform_points(self, f):
-		for points in (self.twist_vs, self.inner_vs, self.m_inner_vs, self.outer_vs, self.twist_cs, self.outer_cs, self.x_outer_ps, self.lpleat_vs, self.rpleat_vs):
-			for i, z in enumerate(points):
-				points[i] = f(z)
-	
+class ComplexTransformable:
 	def __imul__(self, a):
 		self.transform_points(lambda z: z*a)
 	
@@ -111,32 +91,174 @@ class FlowerTowerUnit:
 		res = copy.deepcopy(self)
 		res.__idiv__(a)
 		return res
+
+class CreasePatternRegion(ComplexTransformable):
+	def __init__(self, vs, is_exterior=False):
+		self.vs = vs
+		self.edges = [None]*len(vs)
+		self.is_exterior = is_exterior
+	
+	def transform_points(self, f):
+		for i, z in enumerate(self.vs):
+			self.vs[i] = f(z)
+
+class EdgeKind(IntEnum):
+	VALLEY = 0
+	MOUNTAIN = 1
+	RAW = 2
+
+class CreasePatternEdge(Drawable):
+	def __init__(self, a, ai, b, bi, kind):
+		self.a = a
+		self.ai = ai
+		self.b = b
+		self.bi = bi
+		self.kind = kind
+		a.edges[ai] = self
+		b.edges[bi] = self
 	
 	def draw(self, screen):
-		N = len(self.twist_vs)
-		for i in range(N):
-			pygame.draw.line(screen, 0xFF00FFFF, toScreen(self.twist_vs[i]), toScreen(self.twist_vs[(i+1)%N]))
-			pygame.draw.line(screen, 0xFFFF00FF, toScreen(self.inner_vs[i]), toScreen(self.inner_vs[(i+1)%N]))
-			pygame.draw.line(screen, 0xFF00FFFF, toScreen(self.inner_vs[i]), toScreen(self.twist_vs[(i+1)%N]))
-			pygame.draw.line(screen, 0xFFFF00FF, toScreen(self.inner_vs[i]), toScreen(self.twist_cs[i]))
-			pygame.draw.line(screen, 0xFF00FFFF, toScreen(self.m_inner_vs[i]), toScreen(self.twist_cs[i]))
-			pygame.draw.line(screen, 0xFF00FFFF, toScreen(self.twist_vs[i]), toScreen(self.outer_cs[i]))
-			pygame.draw.line(screen, 0xFFFF00FF, toScreen(self.m_inner_vs[i]), toScreen(self.twist_vs[(i+1)%N]))
-			pygame.draw.line(screen, 0xFFFF00FF, toScreen(self.twist_vs[i]), toScreen(self.outer_vs[i]))
-			pygame.draw.line(screen, 0xFFFF00FF, toScreen(self.outer_vs[i]), toScreen(self.outer_cs[(i+1)%N]))
-			pygame.draw.line(screen, 0xFF00FFFF, toScreen(self.m_inner_vs[i]), toScreen(self.x_outer_ps[i]))
-			pygame.draw.line(screen, 0xFFFF00FF, toScreen(self.outer_cs[i]), toScreen(self.x_outer_ps[i]))
-			pygame.draw.line(screen, 0xFF00FFFF, toScreen(self.m_inner_vs[i]), toScreen(self.outer_cs[(i+1)%N]))
-			pygame.draw.line(screen, 0xFF00FFFF, toScreen(self.lpleat_vs[i]), toScreen(self.outer_cs[i]))
-			pygame.draw.line(screen, 0xFF00FFFF, toScreen(self.lpleat_vs[i]), toScreen(self.outer_vs[i]))
-			pygame.draw.line(screen, 0xFF00FFFF, toScreen(self.rpleat_vs[i]), toScreen(self.outer_vs[(i-1)%N]))
-			pygame.draw.line(screen, 0xFF00FFFF, toScreen(self.rpleat_vs[i]), toScreen(self.outer_cs[i]))
-			pygame.draw.line(screen, 0xFFFF00FF, toScreen(self.rpleat_vs[i]), toScreen(self.lpleat_vs[i]))
+		pygame.draw.line(screen, (0xFFFF00FF, 0xFF00FFFF, 0xFFFFFFFF)[self.kind], toScreen(self.a.vs[self.ai]), toScreen(self.a.vs[(self.ai+1)%len(self.a.vs)]))
 
-twists = [FlowerTowerUnit(8, 0.06, -0.32-0.32J)]
+class PartialCreasePattern(ComplexTransformable, Drawable):
+	def __init__(self):
+		self.regions = []
+		self.edges = []
+	
+	def transform_points(self, f):
+		for region in self.regions:
+			region.transform_points(f)
+	
+	def draw(self, screen):
+		for edge in self.edges:
+			edge.draw(screen)
+
+class FlowerTowerBuilder:
+	def __init__(self, n):
+		self.n = n
+		self.a = 1 + 0J
+		self.z = 0J
+	
+	def scale(self, a):
+		self.a *= a
+		self.z *= a
+		return self
+	
+	def translate(self, z):
+		self.z += z
+		return self
+	
+	def build(self):
+		n = self.n
+		twist_vs = [cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		inner_vs = [0.5/cmath.cos(cmath.pi/n)*cmath.exp(2*cmath.pi*(i/n + 0.5/n)*1J) for i in range(n)]
+		m_inner_vs = [(2*cmath.cos(cmath.pi/n) - 0.5/cmath.cos(cmath.pi/n))*cmath.exp(2*cmath.pi*(i/n + 0.5/n)*1J) for i in range(n)]
+		outer_vs = [2*cmath.cos(cmath.pi/n)*cmath.exp(2*cmath.pi*(i/n + 0.5/n)*1J) for i in range(n)]
+		twist_cs = [cmath.cos(cmath.pi/n)*cmath.exp(2*cmath.pi*(i/n + 0.5/n)*1J) for i in range(n)]
+		outer_cs = [2*cmath.cos(cmath.pi/n)**2*cmath.exp(2*cmath.pi*(i/n)*1J) for i in range(n)]
+		
+		x_outer_ps = intersectLines(m_inner_vs[0], outer_cs[0] - m_inner_vs[0], twist_vs[0], outer_vs[0] - twist_vs[0])
+		x_outer_ps = [x_outer_ps*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		
+		lpleat_vs = outer_cs[0] + abs(outer_vs[0] - outer_cs[0])/2**.5*cmath.exp(cmath.pi*0.25J)
+		rpleat_vs = lpleat_vs.conjugate()
+		lpleat_vs = [lpleat_vs*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		rpleat_vs = [rpleat_vs*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		
+		#stella_ps = outer_cs[0] + abs(outer_vs[0] - outer_vs[-1])
+		stella_ps = outer_cs[0] + abs(lpleat_vs[0] - rpleat_vs[0])
+		stella_ls = stella_ps + abs(inner_vs[0] - inner_vs[-1])/2**.5*cmath.exp(cmath.pi*0.75J)
+		ext_lpleat_vs = complex(stella_ls.real, lpleat_vs[0].imag)
+		ext_lpleat_cs = complex(stella_ls.real, outer_vs[0].imag)
+		stella_rs = stella_ls.conjugate()
+		ext_rpleat_vs = ext_lpleat_vs.conjugate()
+		ext_rpleat_cs = ext_lpleat_cs.conjugate()
+		stella_ps = [stella_ps*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		stella_ls = [stella_ls*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		stella_rs = [stella_rs*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		ext_lpleat_vs = [ext_lpleat_vs*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		ext_rpleat_vs = [ext_rpleat_vs*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		ext_lpleat_cs = [ext_lpleat_cs*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		ext_rpleat_cs = [ext_rpleat_cs*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		
+		ext_vs = intersectLines(stella_ls[0], stella_ls[0] - stella_rs[0], stella_rs[1], stella_rs[1] - stella_ls[1])
+		ext_vs = [ext_vs*cmath.exp(2*cmath.pi*i/n*1J) for i in range(n)]
+		
+		inner_region = CreasePatternRegion(inner_vs)
+		inter_quads = [CreasePatternRegion([inner_vs[i-1], twist_vs[i], twist_cs[i], inner_vs[i]]) for i in range(n)]
+		inter_tris = [CreasePatternRegion([inner_vs[i-1], twist_cs[i-1], twist_vs[i]]) for i in range(n)]
+		ext1_quads = [CreasePatternRegion([twist_vs[i], x_outer_ps[i], m_inner_vs[i], twist_cs[i]]) for i in range(n)]
+		ext1_tris = [CreasePatternRegion([twist_vs[i], twist_cs[i-1], m_inner_vs[i-1]]) for i in range(n)]
+		ext2_tris = [CreasePatternRegion([twist_vs[i], m_inner_vs[i-1], outer_cs[i]]) for i in range(n)]
+		ext3_tris = [CreasePatternRegion([twist_vs[i], outer_cs[i], x_outer_ps[i]]) for i in range(n)]
+		ext2_quads = [CreasePatternRegion([m_inner_vs[i-1], x_outer_ps[i-1], outer_vs[i-1], outer_cs[i]]) for i in range(n)]
+		ext3_quads = [CreasePatternRegion([x_outer_ps[i], outer_cs[i], lpleat_vs[i], outer_vs[i]]) for i in range(n)]
+		swivel_tris = [CreasePatternRegion([outer_cs[i], outer_vs[i-1], rpleat_vs[i]]) for i in range(n)]
+		rabbit_tris = [CreasePatternRegion([outer_cs[i], rpleat_vs[i], lpleat_vs[i]]) for i in range(n)]
+		
+		stella_hepts = [CreasePatternRegion([lpleat_vs[i], rpleat_vs[i], ext_rpleat_vs[i], stella_rs[i], stella_ps[i], stella_ls[i], ext_lpleat_vs[i]]) for i in range(n)]
+		swivel_traps = [CreasePatternRegion([outer_vs[i-1], ext_rpleat_cs[i], ext_rpleat_vs[i], rpleat_vs[i]]) for i in range(n)]
+		rabbit_traps = [CreasePatternRegion([outer_vs[i], lpleat_vs[i], ext_lpleat_vs[i], ext_lpleat_cs[i]]) for i in range(n)]
+		kites = [CreasePatternRegion([outer_vs[i], ext_lpleat_cs[i], ext_vs[i], ext_rpleat_cs[(i+1)%n]]) for i in range(n)]
+		
+		exterior_region = []
+		for i in range(n):
+			exterior_region += [ext_vs[-i], ext_lpleat_cs[-i], ext_lpleat_vs[-i], stella_ls[-i], stella_ps[-i], stella_rs[-i], ext_rpleat_vs[-i], ext_rpleat_cs[-i]]
+		exterior_region = CreasePatternRegion(exterior_region, True)
+		
+		edges = []
+		
+		for i in range(n):
+			edges.append(CreasePatternEdge(inner_region, i, inter_quads[i], 3, EdgeKind.VALLEY))
+			edges.append(CreasePatternEdge(inter_quads[i], 0, inter_tris[i], 2, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(inter_quads[i], 1, ext1_quads[i], 3, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(inter_tris[i], 1, ext1_tris[i], 0, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(ext1_tris[i], 2, ext2_tris[i], 0, EdgeKind.VALLEY))
+			edges.append(CreasePatternEdge(ext1_quads[i], 0, ext3_tris[i], 2, EdgeKind.VALLEY))
+			edges.append(CreasePatternEdge(ext2_tris[i], 2, ext3_tris[i], 0, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(ext2_tris[i], 1, ext2_quads[i], 3, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(ext3_tris[i], 1, ext3_quads[i], 0, EdgeKind.VALLEY))
+			edges.append(CreasePatternEdge(ext2_quads[i], 2, swivel_tris[i], 0, EdgeKind.VALLEY))
+			edges.append(CreasePatternEdge(ext3_quads[i], 1, rabbit_tris[i], 2, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(swivel_tris[i], 2, rabbit_tris[i], 0, EdgeKind.MOUNTAIN))
+			
+			edges.append(CreasePatternEdge(inter_tris[i], 0, inter_quads[i-1], 2, EdgeKind.VALLEY))
+			edges.append(CreasePatternEdge(ext1_tris[i], 1, ext1_quads[i-1], 2, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(ext2_quads[i], 0, ext1_quads[i-1], 1, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(ext2_quads[i], 1, ext3_quads[i-1], 3, EdgeKind.VALLEY))
+			
+			edges.append(CreasePatternEdge(rabbit_tris[i], 1, stella_hepts[i], 0, EdgeKind.VALLEY))
+			edges.append(CreasePatternEdge(swivel_tris[i], 1, swivel_traps[i], 3, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(ext3_quads[i], 2, rabbit_traps[i], 0, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(kites[i], 0, rabbit_traps[i], 3, EdgeKind.VALLEY))
+			edges.append(CreasePatternEdge(kites[i], 3, swivel_traps[i], 0, EdgeKind.VALLEY))
+			edges.append(CreasePatternEdge(rabbit_traps[i], 1, stella_hepts[i], 6, EdgeKind.MOUNTAIN))
+			edges.append(CreasePatternEdge(swivel_traps[i], 2, stella_hepts[i], 1, EdgeKind.MOUNTAIN))
+			
+			if i == 0:
+				edges.append(CreasePatternEdge(kites[i], 1, exterior_region, 0, EdgeKind.RAW))
+			else:
+				edges.append(CreasePatternEdge(kites[i], 1, exterior_region, 8*(n - i) - 0, EdgeKind.RAW))
+			edges.append(CreasePatternEdge(rabbit_traps[i], 2, exterior_region, 8*(n - i) - 1, EdgeKind.RAW))
+			for k in range(2, 6):
+				edges.append(CreasePatternEdge(stella_hepts[i], 7 - k, exterior_region, 8*(n - i) - k, EdgeKind.RAW))
+			edges.append(CreasePatternEdge(swivel_traps[i], 1, exterior_region, 8*(n - i) - 6, EdgeKind.RAW))
+			edges.append(CreasePatternEdge(kites[i-1], 2, exterior_region, 8*(n - i) - 7, EdgeKind.RAW))
+		
+		res = PartialCreasePattern()
+		res.regions = [inner_region, *inter_quads, *inter_tris, *ext1_quads, *ext1_tris, *ext2_tris, *ext3_tris, *ext2_quads, *ext3_quads, *swivel_tris, *rabbit_tris, *stella_hepts, *swivel_traps, *rabbit_traps, *kites, exterior_region]
+		res.edges = edges
+		if self.a != 1:
+			res.transform_points(lambda z: z*self.a)
+			#res *= self.a
+		if self.z != 0:
+			res.transform_points(lambda z: z + self.z)
+			#res += self.z
+		return res
+
+twists = [FlowerTowerBuilder(8).scale(0.06).translate(-0.32-0.32J).build()]
 for i in range(3):
 	twists.append(twists[-1] + (0.22+0.22J))
-
 twists.append(twists[1] + (-0.22+0.22J))
 twists.append(twists[2] + (0.22-0.22J))
 
@@ -148,16 +270,6 @@ while True:
 	screen.fill(0xFF000000)
 	for twist in twists:
 		twist.draw(screen)
-	for i in range(3):
-		pygame.draw.line(screen, 0xFF00FFFF, toScreen(twists[i].rpleat_vs[1]), toScreen(twists[i+1].lpleat_vs[5]))
-		pygame.draw.line(screen, 0xFF00FFFF, toScreen(twists[i].lpleat_vs[1]), toScreen(twists[i+1].rpleat_vs[5]))
-		pygame.draw.line(screen, 0xFFFF00FF, toScreen(twists[i].outer_vs[0]), toScreen(twists[i+1].outer_vs[5]))
-		pygame.draw.line(screen, 0xFFFF00FF, toScreen(twists[i].outer_vs[1]), toScreen(twists[i+1].outer_vs[4]))
-	for (i, j) in ((4, 1), (2, 5)):
-		pygame.draw.line(screen, 0xFF00FFFF, toScreen(twists[i].rpleat_vs[7]), toScreen(twists[j].lpleat_vs[3]))
-		pygame.draw.line(screen, 0xFF00FFFF, toScreen(twists[i].lpleat_vs[7]), toScreen(twists[j].rpleat_vs[3]))
-		pygame.draw.line(screen, 0xFFFF00FF, toScreen(twists[i].outer_vs[7]), toScreen(twists[j].outer_vs[2]))
-		pygame.draw.line(screen, 0xFFFF00FF, toScreen(twists[i].outer_vs[6]), toScreen(twists[j].outer_vs[3]))
 	pygame.display.flip()
 	#time.sleep(100)
 
