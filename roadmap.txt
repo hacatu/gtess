@@ -1,0 +1,3 @@
+The entire implementation is currently in one file, it should be split up
+The PartialCreasePatternBuilder is hard to reason about and should have automated self checking
+
