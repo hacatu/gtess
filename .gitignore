@@ -4,4 +4,5 @@ cov/*
 cov*.html
 notes/*
 obj/*
+__pycache__/*
 
