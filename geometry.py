@@ -26,7 +26,7 @@ def complexCross(a, b):
 	return a.real*b.imag - a.imag*b.real
 
 def intersectLines(a_p, a_o, b_p, b_o):
-	det = complexCross(a_o, b_o);
+	det = complexCross(a_o, b_o)
 	if abs(det) < GT_EPSILON:
 		if abs(complexCross(b_p - a_p, a_o)) < GT_EPSILON:#collinear
 			return a_p
@@ -42,7 +42,16 @@ class Drawable(abc.ABC):
 	def draw(self, screen):
 		raise NotImplementedError("This default abstract method should not be called")
 
-class ComplexTransformable:
+class Steppable(abc.ABC):
+	@abc.abstractmethod
+	def step(self):
+		raise NotImplementedError("This default abstract method should not be called")
+
+class ComplexTransformable(abc.ABC):
+	@abc.abstractmethod
+	def transform_points(self, f):
+		raise NotImplementedError("This default abstract method should not be called")
+
 	def __imul__(self, a):
 		self.transform_points(lambda z: z*a)
 		return self
@@ -152,7 +161,7 @@ class ComposableEdgeList(Drawable):
 		return self
 	
 	def extend(self, *others):
-		self.vs.extend(other.vs for other in others)
+		self.edges.extend(other.edges for other in others)
 		return self
 	
 	def replicate(self, stride, copies):
@@ -161,7 +170,7 @@ class ComposableEdgeList(Drawable):
 	
 	def draw(self, screen):
 		if self.cpl is None:
-			raise ValueError("Can't draw an C. Edge List without a reference C. Point List")
+			raise ValueError("Can't draw a C. Edge List without a reference C. Point List")
 		for i, j, kind in self.edges:
 			pygame.draw.line(screen, (0xFFFF00FF, 0xFF00FFFF, 0xFFFFFFFF)[kind], toScreen(self.cpl.vs[i]), toScreen(self.cpl.vs[j]))
 

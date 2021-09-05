@@ -88,11 +88,59 @@ class PlaneGraphNode:
 		self.graph.visited_edges.add((self.idx, self.neighbors[j]))
 		return self.neighbors[j]
 
-class PartialCreasePatternBuilder:
+class PartialCreasePatternBuilder(ComplexTransformable, Drawable, Steppable):
 	def __init__(self):
 		self.vertices = []
 		self.edges = {}
+		self.transformed_usq = [0, 1] #we store the transformations applied by applying them to the unit square
+		self.res = PartialCreasePattern()
+		self.done_building = False
 	
+	def transform_points(self, f):
+		for i, z in enumerate(self.transformed_usq):
+			self.transformed_usq[i] = f(z)
+	
+	def draw(self, screen):
+		shift = self.transformed_usq[0]
+		scale = self.transformed_usq[1] - shift
+		for edge in self.res.edges:
+			start = toScreen(edge.a.vs[edge.ai] * scale + shift)
+			end = toScreen(edge.a.vs[(edge.ai+1)%len(edge.a.vs)] * scale + shift)
+			pygame.draw.line(screen, (0xFFFF00FF, 0xFF00FFFF, 0xFFFFFFFF)[edge.kind], start, end)
+
+	def step(self):
+		if self.done_building:
+			print("No more steps!  Building is done!")
+			return
+		print(" vertex: ", self.v1.point)
+		self.i2 = self.v1.visit_from(self.f, not self.face)
+		self.face.append(self.i1)
+		#print(" face: ", face)
+		self.v2 = self.vertices[self.i2]
+		if self.i2 == self.face[0]:
+			print(" face completed")
+			self._add_res_face(self.face)
+			if self.v2.has_unvisited_neighbors():
+				self.f = self.face[1]
+				self.face = []
+				self.v1 = self.v2
+				self.i1 = self.i2
+			else:
+				try:
+					self.i1 = self.done_vertices.index(False)
+				except ValueError:
+					self.done_building = True
+					if not self._check_result():
+						print("!!! PartialCreasePatternBuilder._check_result failed")
+					return
+				self.f = -1
+				self.face = []
+				self.v1 = self.vertices[self.i1]
+		else:
+			self.f = self.i1
+			self.v1 = self.v2
+			self.i1 = self.i2
+
 	def with_vertices(self, vs):
 		self.vertices = [PlaneGraphNode(self, v, i) for (i, v) in enumerate(vs)]
 		return self
@@ -148,47 +196,20 @@ class PartialCreasePatternBuilder:
 		return status
 	
 	def build(self):
+		self.start_build()
+		while not self.done_building:
+			self.step()
+		return self.res
+
+	def start_build(self):
 		#print("Building PCP")
 		#print("points: ", [v.point for v in self.vertices])
 		#print("starting from point 0")
-		self.res = PartialCreasePattern()
 		self.done_vertices = bitarray(len(self.vertices))
 		self.done_vertices.setall(False)
 		self.visited_edges = set()
-		face = []
-		i1 = 0
-		v1 = self.vertices[i1]
-		f = -1
-		while True:
-			#print(" vertex: ", v1.point)
-			i2 = v1.visit_from(f, not face)
-			face.append(i1)
-			#print(" face: ", face)
-			v2 = self.vertices[i2]
-			if i2 == face[0]:
-				#print(" face completed")
-				self._add_res_face(face)
-				if v2.has_unvisited_neighbors():
-					f = face[1]
-					face = []
-					v1 = v2
-					i1 = i2
-				else:
-					try:
-						i1 = self.done_vertices.index(False)
-					except ValueError:
-						if not self._check_result():
-							print("!!! PartialCreasePatternBuilder._check_result failed")
-						return self.res
-					f = -1
-					face = []
-					v1 = self.vertices[i1]
-			else:
-				f = i1
-				v1 = v2
-				i1 = i2
-		#TODO: identify exterior region (and maybe do convexity check in general)
-		if not self._check_result():
-			print("!!! PartialCreasePatternBuilder._check_result failed")
-		return self.res
+		self.face = []
+		self.i1 = 0
+		self.v1 = self.vertices[self.i1]
+		self.f = -1
 

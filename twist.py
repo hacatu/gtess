@@ -1,10 +1,31 @@
 import pygame
+import pygame.freetype
 import cmath
 from collections import defaultdict, deque
 import sys
+import time
 
 from geometry import *
 from cp_builders import *
+
+class UserLine(ComplexTransformable, Drawable):
+	def __init__(self, start):
+		self.vs = [start, start]
+		self.active = True
+	
+	def move_terminus(self, i, z):
+		self.vs[i] = z
+	
+	def finalize(self):
+		self.active = False
+
+	def transform_points(self, f):
+		for i, z in enumerate(self.vs):
+			self.vs[i] = f(z)
+		return self
+	
+	def draw(self, screen):
+		pygame.draw.line(screen, 0xFF00FF00, toScreen(self.vs[0]), toScreen(self.vs[1]))
 
 class FlowerTowerBuilder:
 	def __init__(self, n):
@@ -164,10 +185,10 @@ edges1.replicate(10, 4)
 pcp_builder = PartialCreasePatternBuilder().with_vertices(points1.vs).with_edges(edges1.edges)
 #print("Building PCP")
 #yield pcp_builder.build()
-drawable_thing = pcp_builder.build()
+crease_pattern = pcp_builder.build()
 
 #drawable_iterator = square_twist_asgenerator()
-#drawable_thing = next(drawable_iterator)
+#crease_pattern = next(drawable_iterator)
 """
 
 """
@@ -176,7 +197,7 @@ edges1 = ComposableEdgeList(reference_cpl=points1).add_edges_MVR(
 	raws=[(0,1),(1,2),(2,3),(3,0)]
 )
 pcp_builder = PartialCreasePatternBuilder().with_vertices(points1.vs).with_edges(edges1.edges)
-drawable_thing = pcp_builder.build()
+crease_pattern = pcp_builder.build()
 """
 
 points1 = ComposablePointList().add_points([0.5J*3**-.5,0.25+0.5J*3**-.5,0.5+0.5J*3**-.5])
@@ -187,24 +208,77 @@ edges1 = ComposableEdgeList(reference_cpl=points1).add_edges_MVR(
 	raws=[(0,1),(1,2),(2,6)]
 ).replicate(3, 3)
 pcp_builder = PartialCreasePatternBuilder().with_vertices(points1.vs).with_edges(edges1.edges)
-drawable_thing = pcp_builder.build()
-#drawable_thing = FlowerTowerBuilder(12).scale(.2).build()
+
+num_sides = 12
+cn = cmath.cos(cmath.pi/num_sides)
+diag = cmath.exp(1J*cmath.pi/num_sides)
+points1 = ComposablePointList().add_points([1, cn*diag, 0.5/cn*diag, 2, 2/cn*diag])
+points1.add_points([2*points1.vs[1] - points1.vs[2]])
+points1.add_points([intersectLines(points1.vs[0], points1.vs[4] - points1.vs[0], points1.vs[5], points1.vs[3] - points1.vs[5])])
+points1.add_points([(1+1J)*points1.vs[3] - 1J*points1.vs[4]])
+points1.add_points([(points1.vs[4] + points1.vs[7])/2])
+points1.add_points([points1.vs[8].conjugate()])
+points1.add_points([points1.vs[7] + (-1 + 1J)*abs(points1.vs[1] - points1.vs[0])/2**.5])
+points1.add_points([points1.vs[10].conjugate(), complex(points1.vs[10].real, points1.vs[8].imag), complex(points1.vs[10].real, points1.vs[9].imag), complex(points1.vs[10].real, points1.vs[4].imag)])
+points1.add_points([points1.vs[14].conjugate(), points1.vs[10].real/cn*diag])
+ostride = len(points1.vs)*(num_sides - 1)
+points1 @= ComposablePointList().add_points([cmath.exp(2J*cmath.pi*i/num_sides) for i in range(num_sides)])
+edges1 = ComposableEdgeList(reference_cpl=points1).add_edges_MVR(
+	mountains=[(2, 2 + ostride), (1, 2), (0, 6), (0, 5 + ostride), (3, 6), (4, 6), (3, 4 + ostride), (15, 4 + ostride), (8, 9), (4, 14)],
+	valleys=[(0, 2 + ostride), (0, 1), (0, 1 + ostride), (1, 5), (0, 3), (3, 5 + ostride), (5, 6), (4, 8), (3, 8), (8, 12), (3, 9), (9, 13), (9, 4 + ostride)],
+	raws=[(7, 10), (10, 12), (12, 14), (14, 16), (7, 11), (11, 13), (13, 15), (15, 16 + ostride)]
+).replicate(17, 12)
+pcp_builder = PartialCreasePatternBuilder().with_vertices(points1.vs).with_edges(edges1.edges)
+
+dirty = True
+#crease_pattern = pcp_builder.build()
+crease_pattern = pcp_builder.build()
+crease_pattern *= .2
+#crease_pattern = FlowerTowerBuilder(num_sides).scale(.2).build()
+user_lines = []
+ribbon_text = "Current tool: draw line"
 
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, WIDTH))
 pygame.display.set_caption("Gtess")
+pgft_font = pygame.freetype.SysFont("Monospace", 28)
 
 while True:
 	for e in pygame.event.get():
 		if e.type == pygame.QUIT or (e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE):
 			pygame.quit()
 			sys.exit(0)
+		elif e.type == pygame.VIDEOEXPOSE:
+			dirty = True
 		elif e.type == pygame.KEYDOWN:
 			if e.key == pygame.K_RIGHT:
-				pass
-				#drawable_thing = next(drawable_iterator)
-	screen.fill(0xFF000000)
-	drawable_thing.draw(screen)
-	pygame.display.flip()
-	#time.sleep(100)
+				num_sides += 1
+				crease_pattern = FlowerTowerBuilder(num_sides).scale(.2).build()
+				dirty = True
+			elif e.key == pygame.K_LEFT and num_sides > 7:
+				num_sides -= 1
+				crease_pattern = FlowerTowerBuilder(num_sides).scale(.2).build()
+				dirty = True
+			elif e.key == pygame.K_SPACE:
+				if isinstance(crease_pattern, Steppable):
+					crease_pattern.step()
+					dirty = True
+		elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+			user_lines.append(UserLine(fromScreen(e.pos)))
+			dirty = True
+		elif e.type == pygame.MOUSEMOTION and 1 in e.buttons:
+			if user_lines and user_lines[-1].active:
+				user_lines[-1].move_terminus(1, fromScreen(e.pos))
+				dirty = True
+		elif e.type == pygame.MOUSEBUTTONUP and e.button == 1:
+			if user_lines:
+				user_lines[-1].finalize()
+	if dirty:
+		screen.fill(0xFF000000)
+		crease_pattern.draw(screen)
+		pgft_font.render_to(screen, (0, WIDTH - 28), ribbon_text, 0xFFFFFFFF)
+		for line in user_lines:
+			line.draw(screen)
+		pygame.display.flip()
+		dirty = False
 
