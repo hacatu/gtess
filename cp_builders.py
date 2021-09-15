@@ -1,27 +1,31 @@
 import itertools as itt
 import pygame
-import cmath
 from collections import defaultdict, deque
 import copy
 from enum import IntEnum
 from bitarray import bitarray
 import abc
+from scipy.spatial import KDTree
 
 from geometry import *
 
-class CreasePatternRegion(ComplexTransformable):
-	def __init__(self, vs, is_exterior=False):
+class CreasePatternRegion(M3Transformable):
+	def __init__(self, vs : np.ndarray, is_exterior : bool = False):
+		if len(vs.shape) != 2 or vs.shape[0] != 2:
+			raise TypeError("vs must be a 2 by x array")
 		self.vs = vs
-		self.edges = [None]*len(vs)
+		self.edges : 'list[CreasePatternEdge]' = [None]*vs.shape[1]
 		self.is_exterior = is_exterior
 	
-	def transform_points(self, f):
-		for i, z in enumerate(self.vs):
-			self.vs[i] = f(z)
+	def apply_M3(self, m : np.ndarray) -> 'CreasePatternRegion':
+		"""Implements M3Transformalbe.apply_M3."""
+		if not isinstance(m, np.ndarray) or m.shape != (2, 3):
+			raise TypeError("m must be a 2 by 3 array")
+		self.vs = m @ np.vstack([self.vs, np.ones((1, self.vs.shape[1]))])
 		return self
 
 class CreasePatternEdge(Drawable):
-	def __init__(self, a, ai, b, bi, kind):
+	def __init__(self, a : CreasePatternRegion, ai : int, b : CreasePatternRegion, bi : int, kind : EdgeKind):
 		self.a = a
 		self.ai = ai
 		self.b = b
@@ -30,48 +34,60 @@ class CreasePatternEdge(Drawable):
 		a.edges[ai] = self
 		b.edges[bi] = self
 	
-	def draw(self, screen):
-		pygame.draw.line(screen, (0xFFFF00FF, 0xFF00FFFF, 0xFFFFFFFF)[self.kind], toScreen(self.a.vs[self.ai]), toScreen(self.a.vs[(self.ai+1)%len(self.a.vs)]))
+	def draw(self, scene : Scene) -> None:
+		if self.kind != EdgeKind.MOUNTAIN:
+			pass
+		color = (0xFFFF00FF, 0xFF00FFFF, 0xFFFFFFFF)[self.kind]
+		#pygame.draw.line(scene.screen, color, scene.toScreen(self.a.vs[:,self.ai]), scene.toScreen(self.b.vs[:,self.bi]))
+		pygame.draw.line(scene.screen, color, scene.toScreen(self.a.vs[:,self.ai]), scene.toScreen(self.a.vs[:,(self.ai+1)%self.a.vs.shape[1]]))
 
-class PartialCreasePattern(ComplexTransformable, Drawable):
+class PartialCreasePattern(M3Transformable, Drawable):
 	def __init__(self):
-		self.regions = []
-		self.edges = []
+		self.regions : list[CreasePatternRegion] = []
+		self.edges : list[CreasePatternEdge] = []
 	
-	def transform_points(self, f):
+	def apply_M3(self, m : np.ndarray) -> 'PartialCreasePattern':
+		"""Implements M3Transformalbe.apply_M3."""
 		for region in self.regions:
-			region.transform_points(f)
+			region.apply_M3(m)
 		return self
 	
-	def draw(self, screen):
+	def draw(self, scene : Scene) -> None:
 		for edge in self.edges:
-			edge.draw(screen)
+			edge.draw(scene)
 
 class PlaneGraphNode:
-	def __init__(self, graph, point, idx):
+	def __init__(self, graph : 'PartialCreasePatternBuilder', point : np.ndarray, idx : int):
+		if not isinstance(point, np.ndarray) or point.shape != (2,):
+			raise TypeError("Invalid argument: point must be an array with 2 elements")
 		self.graph = graph
 		self.point = point
 		self.idx = idx
-		self.neighbors = []
+		self.neighbors : list[int] = []
 		self.is_sorted = False
-		self.num_unvisited_neighbors = 0
+		self.num_unvisited_neighbors : int = 0
 	
-	def add_neighbor(self, j):
+	def add_neighbor(self, j : int) -> 'PlanarGraphNode':
 		self.neighbors.append(j)
 		self.num_unvisited_neighbors += 1
 		return self
 	
-	def _sort_neighbors_ccw_from(self, f):
-		cut_phase = 0 if f == -1 else cmath.phase(self.graph.vertices[f].point - self.point)
-		def key(j):
-			return (cmath.phase(self.graph.vertices[j].point - self.point) - cut_phase)%(2*cmath.pi)
+	def _sort_neighbors_ccw_from(self, f : int) -> None:
+		if f == -1:
+			cut_phase = 0.
+		else:
+			x, y = self.graph.vertices[f].point - self.point
+			cut_phase = np.arctan2(x, y)
+		def key(j : int) -> float:
+			x, y = self.graph.vertices[j].point - self.point
+			return (np.arctan2(x, y) - cut_phase)%(2*np.pi)
 		self.neighbors.sort(key=key)
 		self.is_sorted = True
 	
-	def has_unvisited_neighbors(self):
+	def has_unvisited_neighbors(self) -> bool:
 		return self.num_unvisited_neighbors != 0
 	
-	def visit_from(self, f, is_new_face):
+	def visit_from(self, f : int, is_new_face : bool) -> int:
 		self.num_unvisited_neighbors -= 1
 		if self.num_unvisited_neighbors == 0:
 			self.graph.done_vertices[self.idx] = True
@@ -88,27 +104,50 @@ class PlaneGraphNode:
 		self.graph.visited_edges.add((self.idx, self.neighbors[j]))
 		return self.neighbors[j]
 
-class PartialCreasePatternBuilder(ComplexTransformable, Drawable, Steppable):
+class PartialCreasePatternBuilder(M3Transformable, Drawable, Steppable):
 	def __init__(self):
-		self.vertices = []
-		self.edges = {}
-		self.transformed_usq = [0, 1] #we store the transformations applied by applying them to the unit square
+		self.vertices : list[PlaneGraphNode] = []
+		self.edges : dict[(int, int), (CreasePatternRegion, CreasePatternRegion, EdgeKind)] = {}
+		self.current_transform = np.array([[1, 0, 0], [0, 1, 0]])
 		self.res = PartialCreasePattern()
 		self.done_building = False
 	
-	def transform_points(self, f):
-		for i, z in enumerate(self.transformed_usq):
-			self.transformed_usq[i] = f(z)
+	def apply_M3(self, m : np.ndarray) -> 'PartialCreasePatternBuilder':
+		self.current_transform = m @ np.vstack([self.current_transform, np.array([[0, 0, 1]])])
 	
-	def draw(self, screen):
-		shift = self.transformed_usq[0]
-		scale = self.transformed_usq[1] - shift
+	def draw(self, scene : Scene) -> None:
 		for edge in self.res.edges:
-			start = toScreen(edge.a.vs[edge.ai] * scale + shift)
-			end = toScreen(edge.a.vs[(edge.ai+1)%len(edge.a.vs)] * scale + shift)
-			pygame.draw.line(screen, (0xFFFF00FF, 0xFF00FFFF, 0xFFFFFFFF)[edge.kind], start, end)
+			color = (0xFFFF00FF, 0xFF00FFFF, 0xFFFFFFFF)[edge.kind]
+			start = scene.toScreen(edge.a.vs[edge.ai].apply_M3(self.current_transform))
+			end = scene.toScreen(edge.a.vs[(edge.ai+1)%len(edge.a.vs)].apply_M3(self.current_transform))
+			pygame.draw.line(scene.screen, color, start, end)
 
-	def step(self):
+	def with_vertices(self, vs : np.ndarray) -> 'PartialCreasePatternBuilder':
+		self.vertices = [PlaneGraphNode(self, v, i) for (i, v) in enumerate(vs.T)]
+		return self
+	
+	def with_edges(self, edges : list[CreasePatternEdge]) -> 'PartialCreasePatternBuilder':
+		for i, j, kind in edges:
+			self.vertices[i].add_neighbor(j)
+			self.vertices[j].add_neighbor(i)
+			if lexCmp(self.vertices[j].point, self.vertices[i].point) < 0:
+				i, j = j, i
+			self.edges[(i, j)] = (None, -1, kind)
+		return self
+	
+	def start_build(self) -> None:
+		#print("Building PCP")
+		#print("points: ", [v.point for v in self.vertices])
+		#print("starting from point 0")
+		self.done_vertices = bitarray(len(self.vertices))
+		self.done_vertices.setall(False)
+		self.visited_edges : set[(int, int)] = set()
+		self.face : list[int] = []
+		self.i1 : int = 0
+		self.v1 : PlaneGraphNode = self.vertices[self.i1]
+		self.f : int = -1
+
+	def step(self) -> None:
 		if self.done_building:
 			print("No more steps!  Building is done!")
 			return
@@ -141,27 +180,14 @@ class PartialCreasePatternBuilder(ComplexTransformable, Drawable, Steppable):
 			self.v1 = self.v2
 			self.i1 = self.i2
 
-	def with_vertices(self, vs):
-		self.vertices = [PlaneGraphNode(self, v, i) for (i, v) in enumerate(vs)]
-		return self
-	
-	def with_edges(self, edges):
-		for i, j, kind in edges:
-			self.vertices[i].add_neighbor(j)
-			self.vertices[j].add_neighbor(i)
-			if complex2Cartesian(self.vertices[j].point) < complex2Cartesian(self.vertices[i].point):
-				i, j = j, i
-			self.edges[(i, j)] = (None, -1, kind)
-		return self
-	
-	def _add_res_face(self, face):
-		interior = CreasePatternRegion([self.vertices[i].point for i in face])
+	def _add_res_face(self, face : list[int]) -> None:
+		interior = CreasePatternRegion(np.hstack([self.vertices[i].point.reshape((2,1)) for i in face]))
 		self.res.regions.append(interior)
 		face.append(face[0])
 		for e in range(len(face) - 1):
 			i = face[e]
 			j = face[e+1]
-			if complex2Cartesian(self.vertices[j].point) < complex2Cartesian(self.vertices[i].point):
+			if lexCmp(self.vertices[j].point, self.vertices[i].point) < 0:
 				i, j = j, i
 			back, k, kind = self.edges[(i, j)]
 			if back is not None:
@@ -169,14 +195,17 @@ class PartialCreasePatternBuilder(ComplexTransformable, Drawable, Steppable):
 			else:
 				self.edges[(i, j)] = (interior, e, kind)
 	
-	def _check_result(self):
+	def _check_result(self) -> bool:
 		edge_occs = set()
-		z2i = {node.point: idx for (idx, node) in enumerate(self.vertices)}
+		points = np.vstack([node.point.reshape((1,2)) for node in self.vertices])
+		print(points.shape)
+		z2i = KDTree(points)
 		#ensure each edge occurs at most once in a given direction
 		#this ensures each edge occurs exactly once in both directions after later checks
 		for region in self.res.regions:
 			for i in range(len(region.vs)):
-				edge = (z2i[region.vs[i]], z2i[region.vs[i-1]])
+				_, edge = z2i.query([region.vs[:,i], region.vs[:,i-1]])
+				edge = tuple(edge)
 				if edge in edge_occs:
 					print("!!! edge occurs multiple times")
 					return False
@@ -195,21 +224,9 @@ class PartialCreasePatternBuilder(ComplexTransformable, Drawable, Steppable):
 			print("!!! not all input edges exist in output")
 		return status
 	
-	def build(self):
+	def build(self) -> PartialCreasePattern:
 		self.start_build()
 		while not self.done_building:
 			self.step()
 		return self.res
-
-	def start_build(self):
-		#print("Building PCP")
-		#print("points: ", [v.point for v in self.vertices])
-		#print("starting from point 0")
-		self.done_vertices = bitarray(len(self.vertices))
-		self.done_vertices.setall(False)
-		self.visited_edges = set()
-		self.face = []
-		self.i1 = 0
-		self.v1 = self.vertices[self.i1]
-		self.f = -1
 
