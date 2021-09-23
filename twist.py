@@ -1,52 +1,9 @@
-import pygame.freetype
-from collections import defaultdict, deque
 import sys
+import pygame.freetype
 
 from geometry import *
 from cp_builders import *
-
-class UserLine(M3Transformable, Drawable):
-	def __init__(self, start : np.ndarray):
-		start = start.reshape((2,1))
-		self.vs = np.hstack([start, start])
-		self.active = True
-	
-	def move_terminus(self, i : int, z : np.ndarray) -> 'UserLine':
-		self.vs[:,i] = z.reshape(2,)
-		return self
-	
-	def finalize(self):
-		self.active = False
-
-	def apply_M3(self, m : np.ndarray) -> 'UserLine':
-		if isinstance(m, np.ndarray) and m.shape == (2, 3):
-			self.vs = m @ np.vstack([self.vs, np.ones((1, self.vs.shape[0]))])
-		return self
-	
-	def draw(self, scene : Scene) -> None:
-		pygame.draw.line(scene.screen, 0xFF00FF00, scene.toScreen(self.vs[:,0]), scene.toScreen(self.vs[:,1]))
-
-"""
-points1 = ComposablePointList().add_points([(0, 3**-.5/2), (.25, 3**-.5/2), (.5, 3**-.5/2)])
-points1.i_replicate_polar(ComposablePointList().add_points([(1, 0), ucircPoint(2*np.pi/3), ucircPoint(-2*np.pi/3)]))
-edges1 = ComposableEdgeList(reference_cpl=points1).add_edges_MVR(
-	mountains=[(0,6)],
-	valleys=[(1,6)],
-	raws=[(0,1),(1,2),(2,6)]
-).i_replicate(3, 3)
-pcp_builder = PartialCreasePatternBuilder().with_vertices(points1.vs).with_edges(edges1.edges)
-"""
-
-"""
-points1 = ComposablePointList().add_points([(.1, 0), (1, 0)])
-points1.i_replicate_polar(ComposablePointList().add_points([ucircPoint(2*i*np.pi/3) for i in range(3)]))
-edges1 = ComposableEdgeList(points1).add_edges_MVR(
-	mountains=[(0, 1)],
-	valleys=[(0,2)],
-	raws=[(1,3)]
-).i_replicate(2, 3)
-pcp_builder = PartialCreasePatternBuilder().with_vertices(points1.vs).with_edges(edges1.edges)
-"""
+from application import *
 
 points1 = ComposablePointList().add_points([(.5, 0), (0, 1)])
 points1.i_replicate_polar(ComposablePointList().add_points([ucircPoint(2*i*np.pi/2) for i in range(2)]))
@@ -56,43 +13,8 @@ edges1 = ComposableEdgeList(points1).add_edges_MVR(
 ).i_replicate(2, 2)
 pcp_builder = PartialCreasePatternBuilder().with_vertices(points1.vs).with_edges(edges1.edges)
 
-class FTFPoints(M3Transformable, Drawable, Steppable):
-	def __init__(self, num_sides):
-		cn = np.cos(np.pi/num_sides)
-		diag = np.array(ucircPoint(np.pi/num_sides)).T
-		points1 = ComposablePointList().add_points([(1, 0), cn*diag, 0.5/cn*diag, 2, 2/cn*diag])
-		def stepper():
-			points1.add_points([2*points1.vs[:,1] - points1.vs[:,2]])
-			yield 
-			points1.add_points([intersectLines(points1.vs[:,0], points1.vs[:,4] - points1.vs[:,0], points1.vs[:,5], points1.vs[:,3] - points1.vs[:,5])])
-			yield
-			points1.add_points([M3(1+1J)(points1.vs[:,3]) - M3(1J)(points1.vs[:,4])])
-			yield
-			points1.add_points([(points1.vs[:,4] + points1.vs[:,7])/2])
-			yield
-			points1.add_points([M3.Conjugate(points1.vs[:,8])])
-			yield
-			tmp = v2(-1+1J)*np.linalg.norm(points1.vs[:,1] - points1.vs[:,0])/2**.5
-			yield
-			points1.add_points([points1.vs[:,7] + tmp])
-			yield
-			points1.add_points([M3.Conjugate(points1.vs[:,10]), v2((points1.vs[0,10], points1.vs[1,8])), v2((points1.vs[0,10], points1.vs[1,9])), v2((points1.vs[0,10], points1.vs[1,4]))])
-			yield
-			points1.add_points([M3.Conjugate(points1.vs[:,14]), points1.vs[0,10]/cn*diag])
-		self.points1 = points1
-		self._stepper = stepper()
-
-	def apply_M3(self, m):
-		self.points1.apply_M3(m)
-		return self
-	
-	def draw(self, scene):
-		self.points1.draw(scene)
-	
-	def step(self):
-		next(self._stepper)
-	
 def makeFlowerTowerBuilder(num_sides : int) -> PartialCreasePatternBuilder:
+	"""Create a PartialCreasePatternBuilder for a flower tower with a given number of sides (should be at least 7 sides)."""
 	cn = np.cos(np.pi/num_sides)
 	diag = np.array(ucircPoint(np.pi/num_sides)).T
 	points1 = ComposablePointList().add_points([(1, 0), cn*diag, 0.5/cn*diag, 2, 2/cn*diag])
@@ -115,63 +37,112 @@ def makeFlowerTowerBuilder(num_sides : int) -> PartialCreasePatternBuilder:
 	).i_replicate(17, num_sides)
 	return PartialCreasePatternBuilder().with_vertices(points1.vs).with_edges(edges1.edges)
 
-num_sides = 12
-pcp_builder = makeFlowerTowerBuilder(num_sides)
-dirty = True
-#crease_pattern = pcp_builder.build()
-crease_pattern = pcp_builder.build()
-#crease_pattern = FTFPoints(12)
-crease_pattern *= .2
-#crease_pattern = FlowerTowerBuilder(num_sides).scale(.2).build()
-user_lines = []
-ribbon_text = "Current tool: draw line"
-
 pygame.init()
-screen = pygame.display.set_mode((WIDTH, WIDTH))
+screen = pygame.display.set_mode((WIDTH, WIDTH), pygame.RESIZABLE)
 pygame.display.set_caption("Gtess")
 pgft_font = pygame.freetype.SysFont("Monospace", 28)
 scene = Scene(screen, (WIDTH, WIDTH))
 
-while True:
-	for e in pygame.event.get():
+scene.num_sides = 12
+pcp_builder = makeFlowerTowerBuilder(scene.num_sides)
+crease_pattern = pcp_builder.build()
+crease_pattern *= .2
+
+scene.addObject(crease_pattern)
+
+class RootInputContext(InputContext):
+	def __init__(self, scene):
+		super().__init__()
+		self.scene = scene
+	
+	def _handleWindowEvent(self, e : pygame.event.EventType) -> bool :
 		if e.type == pygame.QUIT or (e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE):
 			pygame.quit()
 			sys.exit(0)
 		elif e.type == pygame.VIDEOEXPOSE:
-			dirty = True
-		elif e.type == pygame.KEYDOWN:
+			self.scene.dirty = True
+		elif e.type == pygame.VIDEORESIZE:
+			self.scene.screen_size = e.size
+		else:
+			return False
+		return True
+
+	def handleEvent(self, e):
+		if self._handleWindowEvent(e) or super().handleEvent(e):
+			return True
+		if e.type == pygame.KEYDOWN:
 			if e.key == pygame.K_RIGHT:
-				num_sides += 1
-				pcp_builder = makeFlowerTowerBuilder(num_sides)
+				self.scene.num_sides += 1
+				pcp_builder = makeFlowerTowerBuilder(scene.num_sides)
 				crease_pattern = pcp_builder.build()
 				crease_pattern *= .2
-				dirty = True
-			elif e.key == pygame.K_LEFT and num_sides > 7:
-				num_sides -= 1
-				pcp_builder = makeFlowerTowerBuilder(num_sides)
+				self.scene.objects[0] = crease_pattern
+				self.scene.dirty = True
+			elif e.key == pygame.K_LEFT and self.scene.num_sides > 7:
+				self.scene.num_sides -= 1
+				pcp_builder = makeFlowerTowerBuilder(self.scene.num_sides)
 				crease_pattern = pcp_builder.build()
 				crease_pattern *= .2
-				dirty = True
+				self.scene.objects[0] = crease_pattern
+				self.scene.dirty = True
 			elif e.key == pygame.K_SPACE:
-				if isinstance(crease_pattern, Steppable):
-					crease_pattern.step()
-					dirty = True
-		elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
-			user_lines.append(UserLine(scene.fromScreen(e.pos)))
-			dirty = True
-		elif e.type == pygame.MOUSEMOTION and 1 in e.buttons:
-			if user_lines and user_lines[-1].active:
-				user_lines[-1].move_terminus(1, scene.fromScreen(e.pos))
-				dirty = True
-		elif e.type == pygame.MOUSEBUTTONUP and e.button == 1:
-			if user_lines:
-				user_lines[-1].finalize()
-	if dirty:
+				if isinstance(self.scene.objects[0], Steppable):
+					self.scene.objects[0].step()
+					self.scene.dirty = True
+		if e.type == pygame.MOUSEMOTION and e.buttons[1]:
+			dsx, dsy = e.rel
+			transform = self.scene.view_transform
+			transform = np.vstack([transform, [0, 0, 1]])
+			transform = np.array([[1, 0, dsx], [0, 1, dsy], [0, 0, 1]]) @ transform
+			self.scene.setTransform(transform[:2])
+		elif e.type == pygame.MOUSEWHEEL and e.y:
+			# TODO; translate before & after so the zoom is centered at the mouse
+			scale = 1.1**e.y
+			transform = self.scene.view_transform
+			transform = np.vstack([transform, [0, 0, 1]])
+			transform = transform @ np.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
+			self.scene.setTransform(transform[:2])
+		else:
+			return False
+		return True
+
+class ToolLineInputContext(InputContext):
+	def __init__(self, scene):
+		super().__init__()
+		self.scene = scene
+		self.ribbon_text = "Current tool: draw line"
+	
+	def handleEvent(self, e):
+		if e.type == pygame.MOUSEBUTTONDOWN and e.button == MouseButton.LEFT:
+			self.scene.addObject(UserLine(self.scene.fromScreen(e.pos)))
+			self.scene.dirty = True
+		elif e.type == pygame.MOUSEMOTION and e.buttons[0]:
+			user_line = next((d for d in reversed(self.scene.objects) if isinstance(d, UserLine)), None)
+			if user_line is not None and user_line.active:
+				user_line.move_terminus(1, self.scene.fromScreen(e.pos))
+				self.scene.dirty = True
+		elif e.type == pygame.MOUSEBUTTONUP and e.button == MouseButton.LEFT:
+			user_line = next((d for d in reversed(self.scene.objects) if isinstance(d, UserLine)), None)
+			if user_line is not None:
+				user_line.finalize()
+		else:
+			return False
+		return True
+
+toolInputContextMap = {
+	"tool.line": ToolLineInputContext(scene)
+}
+
+root_input_ctx = RootInputContext(scene)
+root_input_ctx.setActiveChild(toolInputContextMap["tool.line"])
+
+while True:
+	for e in pygame.event.get():
+		root_input_ctx.handleEvent(e)
+	if scene.dirty:
 		screen.fill(0xFF000000)
-		crease_pattern.draw(scene)
-		pgft_font.render_to(screen, (0, WIDTH - 28), ribbon_text, 0xFFFFFFFF)
-		for line in user_lines:
-			line.draw(scene)
+		scene.draw()
+		if root_input_ctx.active_child is not None:
+			pgft_font.render_to(screen, (0, scene.screen_size[1] - 28), root_input_ctx.active_child.ribbon_text, 0xFFFFFFFF)
 		pygame.display.flip()
-		dirty = False
 

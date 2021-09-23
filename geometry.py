@@ -1,26 +1,28 @@
 import itertools as itt
-import pygame
-import scipy as sp
-import numpy as np
-from collections import defaultdict, deque
-from collections.abc import Iterable
-from typing import Union
+from collections.abc import Iterable, Sequence
+from typing import Union, TypeVar
 import copy
 from enum import IntEnum
-from bitarray import bitarray
 import abc
 import numbers
+import numpy as np
+import pygame
 
 GT_EPSILON = 1e-8
 WIDTH = 800
 
-def fst(t):
+T = TypeVar("T")
+
+def fst(t: Sequence[T]) -> T:
+	"""Get t[0]"""
 	return t[0]
 
-def snd(t):
+def snd(t: Sequence[T]) -> T:
+	"""Get t[1]"""
 	return t[1]
 
 class Scene:
+	"""Handles translating between screen coordinates and model/paper coordinates, as well as drawing to the screen"""
 	def __init__(self, screen : pygame.Surface, screen_size : (int, int), view_transform : np.ndarray = None):
 		if (
 			not isinstance(screen, pygame.Surface) or
@@ -35,20 +37,48 @@ class Scene:
 		if view_transform is None:
 			a : float = min(screen_size)/2
 			view_transform = np.array([[a, 0, screen_size[0]/2], [0, -a, screen_size[1]/2]])
+		self.setTransform(view_transform)
+		self.objects : 'list[Drawable]' = []
+		self.dirty = False
+	
+	def setTransform(self, view_transform : np.ndarray = None) -> None :
+		"""Update the transform and view transform"""
+		if not (
+			view_transform is None or
+			(isinstance(view_transform, np.ndarray) and view_transform.shape == (2, 3) and view_transform.dtype == np.float64)
+		):
+			raise TypeError("Invalid argument type")
 		self.view_transform = view_transform
 		self.inv_transform = np.linalg.inv(np.vstack([view_transform, np.array([[0, 0, 1]])]))[:2]
-	
+		self.dirty = True
+
 	def toScreen(self, x : np.ndarray) -> (int, int):
+		"""Convert a point from model coordinates to screen coordinates"""
 		if not (isinstance(x, np.ndarray) and x.shape == (2,) and x.dtype == np.float64):
 			raise TypeError("Input coordinate must be a length 2 ndarray of float64")
 		x, y = self.view_transform @ np.vstack([x.reshape(2,1), np.ones((1,1))])
 		return (int(x), int(y))
 	
 	def fromScreen(self, x : (int, int)) -> np.ndarray:
+		"""Convert a point from screen coordinates to model coordinates"""
 		x = np.array(x).reshape(2,1)
 		return self.inv_transform @ np.vstack([x, np.ones((1,1))])
+	
+	def addObject(self, d : 'Drawable') -> None:
+		self.objects.append(d)
+		self.dirty = False
+
+	def draw(self) -> None :
+		if self.dirty:
+			self.dirty = False
+			for d in self.objects:
+				d.draw(self)
 
 def intersectLines(a_p : np.ndarray, a_o : np.ndarray, b_p : np.ndarray, b_o : np.ndarray) -> np.ndarray:
+	"""Find the intersection of the line a_p + a_o*t with the line b_p + b_o*s.
+	Note that this intersection may lie outside the segments (a_p, a_p + a_o) and (b_p, b_p + b_o).
+	If the lines are collinear, a_p is returned.
+	If the lines do not intersect (because they are parallel but not collinear), None is returned."""
 	det : float = np.cross(a_o, b_o)
 	if abs(det) < GT_EPSILON:
 		if abs(np.cross(b_p - a_p, a_o)) < GT_EPSILON:#collinear
@@ -58,6 +88,11 @@ def intersectLines(a_p : np.ndarray, a_o : np.ndarray, b_p : np.ndarray, b_o : n
 	return b_p + b_o*t
 
 class M3:
+	"""Convenience wrapper for a 2x3 matrix representing an affine transformation on 2D points.
+	Complex numbers (including real numbers), pairs of real numbers, and 2x3 iterables of real numbers
+	are coerced to transformation matrices.  Complex numbers represent rotation and/or rigid scaling,
+	and pairs of real numbers represent heterogeneous scaling (separate x/y values).
+	Instances of this class may be called on numpy 2x? arrays of points to transform them."""
 	def __init__(self, m : Union[numbers.Number, Iterable[numbers.Real], Iterable[Iterable[numbers.Real]]]):
 		if isinstance(m, numbers.Number):
 			if isinstance(m, numbers.Real):
@@ -65,7 +100,7 @@ class M3:
 			else:
 				self.m = np.array([[m.real, -m.imag, 0], [m.imag, m.real, 0]])
 			return
-		elif not isinstance(m, Iterable):
+		if not isinstance(m, Iterable):
 			raise TypeError("Cannot convert value of type \"" + type(m) + "\" to a transformation matrix")
 		m = list(m)
 		if len(m) != 2:
@@ -75,7 +110,7 @@ class M3:
 				m[i] = list(m[i])
 				if len(m[i]) < 2:
 					raise TypeError("Nested iterable is too short (must have 2 or 3 terms); cannot convert to a transformation matrix")
-				elif len(m[i]) == 2:
+				if len(m[i]) == 2:
 					m[i].append(0)
 				elif len(m[i]) > 3:
 					m[i].append(0)
@@ -96,14 +131,16 @@ M3.Transpose = M3([[0, 1], [1, 0]])
 M3.Conjugate = M3([1, -1])
 
 def ucircPoint(a : float) -> np.ndarray:
+	"""Return a point on the unit circle with a given angle, aka (cos(a), sin(a))."""
 	return (np.cos(a), np.sin(a))
 
 def v2(v : Union[numbers.Number, Iterable[numbers.Real]]) -> np.ndarray:
+	"""Try to coerce a value into a numpy array representing a 2D point.
+	In particular, complex numbers (including real numbers) are converted to (real, imag) points,
+	and iterables containing 2 real numbers are converted to numpy arrays."""
 	if isinstance(v, numbers.Number):
-		if isinstance(v, numbers.Real):
-			return np.array([v, 0])
 		return np.array([v.real, v.imag])
-	elif not isinstance(v, Iterable):
+	if not isinstance(v, Iterable):
 		raise TypeError("Cannot convert value of type \"" + type(v) + "\" to a vector")
 	v = list(v)
 	if len(v) != 2:
@@ -113,19 +150,26 @@ def v2(v : Union[numbers.Number, Iterable[numbers.Real]]) -> np.ndarray:
 	return np.array(v)
 
 def lexCmp(a : np.ndarray, b : np.ndarray) -> int:
+	"""Compare two numpy arrays lexicographically, ignoring their shape and
+	any trailing elements of the longer one if applicable.
+	Returns -1 if a<b, 0 if a == b, and 1 if a > b"""
 	for x, y in zip(np.nditer(a), np.nditer(b)):
 		if x != y:
 			return -1 if x < y else 1
 	return 0
 
 class Drawable(abc.ABC):
+	"""Interface for 2D objects which can be drawn to the screen."""
 	@abc.abstractmethod
 	def draw(self, scene : Scene) -> None:
+		"""Abstract method to draw an object to a scene"""
 		raise NotImplementedError("This default abstract method should not be called")
 
 class Steppable(abc.ABC):
+	"""Quick and dirty interface for creating steppable geometry for debugging purposes"""
 	@abc.abstractmethod
 	def step(self):
+		"""Abstract method to advance an object to its next state"""
 		raise NotImplementedError("This default abstract method should not be called")
 
 class M3Transformable(abc.ABC):
@@ -246,7 +290,6 @@ class ComposablePointList(M3Transformable, Drawable):
 		self.vs = np.ndarray((2, 0))
 	
 	def apply_M3(self, m : np.ndarray) -> 'ComposablePointList':
-		"""Implements M3Transformalbe.apply_M3."""
 		if isinstance(m, np.ndarray) and m.shape == (2, 3):
 			self.vs = m @ np.vstack([self.vs, np.ones((1, self.vs.shape[1]))])
 		return self

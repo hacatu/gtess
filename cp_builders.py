@@ -1,15 +1,11 @@
-import itertools as itt
-import pygame
-from collections import defaultdict, deque
-import copy
-from enum import IntEnum
 from bitarray import bitarray
-import abc
 from scipy.spatial import KDTree
+import pygame
 
 from geometry import *
 
 class CreasePatternRegion(M3Transformable):
+	"""A region or face of the crease pattern graph."""
 	def __init__(self, vs : np.ndarray, is_exterior : bool = False):
 		if len(vs.shape) != 2 or vs.shape[0] != 2:
 			raise TypeError("vs must be a 2 by x array")
@@ -18,13 +14,13 @@ class CreasePatternRegion(M3Transformable):
 		self.is_exterior = is_exterior
 	
 	def apply_M3(self, m : np.ndarray) -> 'CreasePatternRegion':
-		"""Implements M3Transformalbe.apply_M3."""
 		if not isinstance(m, np.ndarray) or m.shape != (2, 3):
 			raise TypeError("m must be a 2 by 3 array")
 		self.vs = m @ np.vstack([self.vs, np.ones((1, self.vs.shape[1]))])
 		return self
 
 class CreasePatternEdge(Drawable):
+	"""An edge of the crease pattern graph."""
 	def __init__(self, a : CreasePatternRegion, ai : int, b : CreasePatternRegion, bi : int, kind : EdgeKind):
 		self.a = a
 		self.ai = ai
@@ -42,12 +38,16 @@ class CreasePatternEdge(Drawable):
 		pygame.draw.line(scene.screen, color, scene.toScreen(self.a.vs[:,self.ai]), scene.toScreen(self.a.vs[:,(self.ai+1)%self.a.vs.shape[1]]))
 
 class PartialCreasePattern(M3Transformable, Drawable):
+	"""A crease pattern, consisting of edges (mountain folds, valley folds, and raw edges), vertices, and regions.
+	Instances of this class should be created via PartialCreasePatternBuilder.
+	"Partial" indicates that instances of this class are intended to be combined into larger crease patterns, and
+	in particular that raw edges represent the extents of a crease pattern for tesselation packing purposes,
+	rather than edges of the paper."""
 	def __init__(self):
 		self.regions : list[CreasePatternRegion] = []
 		self.edges : list[CreasePatternEdge] = []
 	
 	def apply_M3(self, m : np.ndarray) -> 'PartialCreasePattern':
-		"""Implements M3Transformalbe.apply_M3."""
 		for region in self.regions:
 			region.apply_M3(m)
 		return self
@@ -57,6 +57,11 @@ class PartialCreasePattern(M3Transformable, Drawable):
 			edge.draw(scene)
 
 class PlaneGraphNode:
+	"""A vertex in a crease pattern graph.
+	This class is mostly used internally by PartialCreasePatternBuilder.
+	Instances of this class contain a list of adjacent verticess.
+	In a fully built PartialCreasePattern, this information is redundant and easy to recover by
+	looking at regions and edges around a vertex."""
 	def __init__(self, graph : 'PartialCreasePatternBuilder', point : np.ndarray, idx : int):
 		if not isinstance(point, np.ndarray) or point.shape != (2,):
 			raise TypeError("Invalid argument: point must be an array with 2 elements")
@@ -68,11 +73,17 @@ class PlaneGraphNode:
 		self.num_unvisited_neighbors : int = 0
 	
 	def add_neighbor(self, j : int) -> 'PlanarGraphNode':
+		"""Add a vertex which is connected by an edge as a neighbor.
+		This is called by PartialCreasePatternBuilder as edges are added."""
 		self.neighbors.append(j)
 		self.num_unvisited_neighbors += 1
 		return self
 	
 	def _sort_neighbors_ccw_from(self, f : int) -> None:
+		"""Once all edges including this vertex have been added and hence all neighbors are in place,
+		this method sorts this vertex's list of neighbors so that they proceed counterclockwise around
+		this vertex starting from vertex f.  f is an index into the list of all vertices in the graph
+		containing this vertex.  If f is -1, sorting starts at the +x axis instead of vertex f."""
 		if f == -1:
 			cut_phase = 0.
 		else:
@@ -85,9 +96,17 @@ class PlaneGraphNode:
 		self.is_sorted = True
 	
 	def has_unvisited_neighbors(self) -> bool:
+		"""Check if all adjacent vertices have been visited so far by PartialCreasePatternBuilder"""
 		return self.num_unvisited_neighbors != 0
 	
 	def visit_from(self, f : int, is_new_face : bool) -> int:
+		"""Find the next vertex around the region to the left of the line segment from vertex f to this vertex.
+		Finding such a next vertex repeatedly creates a counterlockwise traversal around that region.
+		This is used by PartialCreasePatternBuilder to find the regions in the crease pattern graph given only
+		the vertices and edges.  The next vertex (in counterclockwise order) around the region to
+		the left of the last segment traversed is the next vertex in CLOCKWISE order around
+		this vertex (from vertex f).
+		When starting a new face, some adjacent vertices may be skipped until an unvisited one is found."""
 		self.num_unvisited_neighbors -= 1
 		if self.num_unvisited_neighbors == 0:
 			self.graph.done_vertices[self.idx] = True
@@ -105,12 +124,32 @@ class PlaneGraphNode:
 		return self.neighbors[j]
 
 class PartialCreasePatternBuilder(M3Transformable, Drawable, Steppable):
+	"""Create a PartialCreasePattern object from a graph given as a list of vertices and edges.
+	The graph denoted by the given vertices and edges MUST be a planar/polyhedral graph, although it need
+	not have exclusively convex regions (even aside from the exterior region).
+	Additional requirements for proper crease patterns are not required here.
+	The algorithm used to find the regions in the graph is a breadth first search on vertices, where all
+	vertices around each face are visited in counterclockwise order, all faces around each vertex are
+	visited in clockwise order, and then another vertex which has not had all faces including it completed
+	is visited.  This is repeated until all edges/vertices/faces have been visited.
+	This approach has several advantages and disadvantages compared to a scanline algorithm.
+	It uses more memory but has the same asymptotic complexity on bounded degree graphs (linear) and handles concave
+	regions more easily.  Because we expect to deal with concave boundaries, this is desireable."""
 	def __init__(self):
 		self.vertices : list[PlaneGraphNode] = []
 		self.edges : dict[(int, int), (CreasePatternRegion, CreasePatternRegion, EdgeKind)] = {}
 		self.current_transform = np.array([[1, 0, 0], [0, 1, 0]])
 		self.res = PartialCreasePattern()
 		self.done_building = False
+		self.done_vertices = bitarray(0)
+		self.done_vertices.setall(False)
+		self.visited_edges : set[(int, int)] = set()
+		self.face : list[int] = []
+		self.i1 : int = -1
+		self.v1 : PlaneGraphNode = None
+		self.i2 : int = -1
+		self.v2 : PlaneGraphNode = None
+		self.f : int = -1
 	
 	def apply_M3(self, m : np.ndarray) -> 'PartialCreasePatternBuilder':
 		self.current_transform = m @ np.vstack([self.current_transform, np.array([[0, 0, 1]])])
@@ -123,10 +162,22 @@ class PartialCreasePatternBuilder(M3Transformable, Drawable, Steppable):
 			pygame.draw.line(scene.screen, color, start, end)
 
 	def with_vertices(self, vs : np.ndarray) -> 'PartialCreasePatternBuilder':
+		"""Set the vertices for the crease pattern graph.  Must be called BEFORE .with_edges.
+		Generally, the vertex array should be generated using
+		ComposablePointList.  The .i_replicate_* methods are particularly useful when dealing with repetitive
+		crease patterns.  Note that internally PlaneGraphNode objects are constructed for each vertex which are
+		not finalized until with_edges has been called."""
 		self.vertices = [PlaneGraphNode(self, v, i) for (i, v) in enumerate(vs.T)]
 		return self
 	
 	def with_edges(self, edges : list[CreasePatternEdge]) -> 'PartialCreasePatternBuilder':
+		"""Set the edges for the crease pattern graph.  Must be called AFTER .with_vertices.
+		Generally, the edge list should be generated using
+		ComposableEdgeList.  The .i_replicate method is particularly useful when dealing with repetitive
+		crease patterns.  Note that edges are represented as CreasePatternEdge objects, and each contains
+		references to its two neighboring regions.  These are initially None before we actually start
+		building, since the entire point of PartialCreasePatternBuilder is to find regions in the crease
+		pattern graph."""
 		for i, j, kind in edges:
 			self.vertices[i].add_neighbor(j)
 			self.vertices[j].add_neighbor(i)
@@ -136,18 +187,19 @@ class PartialCreasePatternBuilder(M3Transformable, Drawable, Steppable):
 		return self
 	
 	def start_build(self) -> None:
+		"""Start the build after .with_vertices and .with_edges have been called.
+		This method should NOT be used externally unless you are using .step to debug this algorithm."""
 		#print("Building PCP")
 		#print("points: ", [v.point for v in self.vertices])
 		#print("starting from point 0")
 		self.done_vertices = bitarray(len(self.vertices))
 		self.done_vertices.setall(False)
-		self.visited_edges : set[(int, int)] = set()
-		self.face : list[int] = []
-		self.i1 : int = 0
+		self.i1 = 0
 		self.v1 : PlaneGraphNode = self.vertices[self.i1]
-		self.f : int = -1
 
 	def step(self) -> None:
+		"""Follow a single edge in the breadth first traversal.
+		This method should ONLY be used externally to debug this algorithm by visualizing it step-by-step."""
 		if self.done_building:
 			print("No more steps!  Building is done!")
 			return
@@ -181,6 +233,7 @@ class PartialCreasePatternBuilder(M3Transformable, Drawable, Steppable):
 			self.i1 = self.i2
 
 	def _add_res_face(self, face : list[int]) -> None:
+		"""Add the current face to the PartialCreasePattern currently being built."""
 		interior = CreasePatternRegion(np.hstack([self.vertices[i].point.reshape((2,1)) for i in face]))
 		self.res.regions.append(interior)
 		face.append(face[0])
@@ -196,6 +249,8 @@ class PartialCreasePatternBuilder(M3Transformable, Drawable, Steppable):
 				self.edges[(i, j)] = (interior, e, kind)
 	
 	def _check_result(self) -> bool:
+		"""Perform simple correctness checks on the finished PartialCreasePattern after building is done.
+		In particular, check that the set of edges in the output is the same as the set of edges in the input."""
 		edge_occs = set()
 		points = np.vstack([node.point.reshape((1,2)) for node in self.vertices])
 		print(points.shape)
@@ -225,6 +280,7 @@ class PartialCreasePatternBuilder(M3Transformable, Drawable, Steppable):
 		return status
 	
 	def build(self) -> PartialCreasePattern:
+		"""Create and return a PartialCreasePattern from the given vertices and edges."""
 		self.start_build()
 		while not self.done_building:
 			self.step()
