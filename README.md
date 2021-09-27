@@ -1,4 +1,5 @@
-# GTESS
+![](gtess.png)
+# GTess
 GTess is a python library and pygame application for designing origami tesselations.
 Currently, crease patterns must be generated manually using the API, as the application is
 only capable of viewing them.
@@ -16,6 +17,8 @@ of n split pleats) from simpler units or from scratch, specifying (or even autom
 generating) folded forms of units for a preview of the final tesselation, and so on,
 may be added after the program is functional.
 
+
+
 ## Implementation Notes
 The python code has extensive docstrings, but some general design notes follow here.
 
@@ -26,12 +29,12 @@ Automatically generating folded versions of crease patterns in general requires 
 3d, but crease pattern foldability in general is an NP complete problem so if it is
 eventually implemented, some compromises would be required.
 
-Because all data is 2d, points are stored as $x$, $y$ coordinates and transformations are
+Because all data is 2d, points are stored as `x`, `y` coordinates and transformations are
 stored as 2 by 3 matrices.  This is because GTess uses a common technique called
 homogeneous coordinates to allow translating points to be accomplished via matrix
-multiplication.  Instead of representing a point as $x$, $y$, we represent it as
-$x$, $y$, $1$.  The redundant $1$ coordinate is not actually stored, but having a
-coordinate that is defined to be $1$ is what allows us to encode translations as matrix
+multiplication.  Instead of representing a point as `x`, `y`, we represent it as
+`x`, `y`, `1`.  The redundant `1` coordinate is not actually stored, but having a
+coordinate that is defined to be `1` is what allows us to encode translations as matrix
 multiplications.  The bottom row of the matrix is always `[0, 0, 1]` so we omit it.
 
 Be careful when editing the code: numpy arrays are gotcha factories.  The main gotchas
@@ -43,9 +46,9 @@ column vector.
 ### Crease Pattern Representation
 
 By definition a crease pattern is a planar graph with some additional constraints.
-Each edge is etiher a raw edge or a crease with exterior dihedral angle between $0$ and
-$2\pi$.  For a flat-foldable crease pattern though, each crease has an exterior dihedral
-angle of either $0$ or $2\pi$ for a mountain or valley fold respectively (assuming the
+Each edge is etiher a raw edge or a crease with exterior dihedral angle between `0` and
+`2\pi`.  For a flat-foldable crease pattern though, each crease has an exterior dihedral
+angle of either `0` or `2\pi` for a mountain or valley fold respectively (assuming the
 "exterior" of the model is on the back side compared to the crease pattern).
 
 Therefore, we can store a crease pattern as a planar graph where each edge is
@@ -106,4 +109,10 @@ counterclockwise order.  Then we pick the first unvisitied edge in clocwise orde
 around the current point, moving to another point with unvisited outgoing edges
 if we have visited all of them.  Once we have visited all directed edges, we are
 done.
+
+Both of these algorithms are linear time and constant space, if we assume the the
+number of edges of a region is bounded by a constant for the scanline algorithm
+and the number of edges meeting at a vertex is bounded by a constant for the
+BFS algorithm.  These assumptions are both mostly true for crease patterns.
+Regions with many sides are more common than vertices with many edges though.
 

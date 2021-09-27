@@ -31,8 +31,6 @@ class CreasePatternEdge(Drawable):
 		b.edges[bi] = self
 	
 	def draw(self, scene : Scene) -> None:
-		if self.kind != EdgeKind.MOUNTAIN:
-			pass
 		color = (0xFFFF00FF, 0xFF00FFFF, 0xFFFFFFFF)[self.kind]
 		#pygame.draw.line(scene.screen, color, scene.toScreen(self.a.vs[:,self.ai]), scene.toScreen(self.b.vs[:,self.bi]))
 		pygame.draw.line(scene.screen, color, scene.toScreen(self.a.vs[:,self.ai]), scene.toScreen(self.a.vs[:,(self.ai+1)%self.a.vs.shape[1]]))
@@ -203,7 +201,7 @@ class PartialCreasePatternBuilder(M3Transformable, Drawable, Steppable):
 		if self.done_building:
 			print("No more steps!  Building is done!")
 			return
-		print(" vertex: ", self.v1.point)
+		#print(" vertex: ", self.v1.point)
 		self.i2 = self.v1.visit_from(self.f, not self.face)
 		self.face.append(self.i1)
 		#print(" face: ", face)
@@ -240,9 +238,15 @@ class PartialCreasePatternBuilder(M3Transformable, Drawable, Steppable):
 		for e in range(len(face) - 1):
 			i = face[e]
 			j = face[e+1]
+			# TODO: for some reason, lexCmp doesn't work.  I expect it's because numpy's inconsistent
+			# column/row vector behavior leads to inconsistent traversal orders
+			# for now, we just check both orders of i, j
 			if lexCmp(self.vertices[j].point, self.vertices[i].point) < 0:
 				i, j = j, i
-			back, k, kind = self.edges[(i, j)]
+			edge = self.edges.get((i, j), None)
+			if edge is None:
+				edge = self.edges[(j, i)]
+			back, k, kind = edge
 			if back is not None:
 				self.res.edges.append(CreasePatternEdge(interior, e, back, k, kind))
 			else:

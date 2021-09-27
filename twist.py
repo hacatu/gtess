@@ -37,16 +37,65 @@ def makeFlowerTowerBuilder(num_sides : int) -> PartialCreasePatternBuilder:
 	).i_replicate(17, num_sides)
 	return PartialCreasePatternBuilder().with_vertices(points1.vs).with_edges(edges1.edges)
 
+def makeSplitTriangleTwistBuilder() -> PartialCreasePatternBuilder:
+	"""Create a PartialCreasePatternBuilder for a triangle twist with split outgoing pleats.
+	The resulting twist is hexagonal but retains three outgoing pleats forming a wye."""
+	points1 = ComposablePointList().add_points([(1, 0), (2, 0)])
+	diag = v2(.5 + .5j*3**.5)
+	points1.i_replicate_polar(ComposablePointList().add_points([1, diag]))
+	points1.add_points([.5*points1.vs[:,0] + .5*points1.vs[:,1], .5*points1.vs[:,1] + .5*points1.vs[:,3], .5*points1.vs[:,0] + .5*points1.vs[:,3]])
+	points1.add_points([points1.vs[:,3] + points1.vs[:,2], points1.vs[:,3] + points1.vs[:,0]])
+	points1.add_points([intersectLines(points1.vs[:,5], points1.vs[:,5], points1.vs[:,0], np.array([0, 1]))])
+	points1.add_points([reflectOverUnit(points1.vs[:,5], diag), reflectOverUnit(points1.vs[:,6], diag), reflectOverUnit(points1.vs[:,8], diag), reflectOverUnit(points1.vs[:,9], diag)])
+	ostride = points1.vs.shape[1]*(3 - 1)
+	points1.i_replicate_polar(ComposablePointList().add_points([1, -.5 + .5j*3**.5, -diag]))
+	edges1 = ComposableEdgeList(points1).add_edges_MVR(
+		mountains=[(2, 9), (0, 9), (6, 9), (3, 6), (5, 6), (4, 5), (3, 8), (2, 13), (0, 13 + ostride), (11, 13), (3, 11), (10, 11), (4, 10 + ostride), (3, 12)],
+		#mountains=[(0, 9), (6, 9), (3, 6), (5, 6), (4, 5), (3, 8), (0, 13 + ostride), (11, 13), (3, 11), (10, 11), (4, 10 + ostride), (3, 12)],
+		valleys=[(0, 2), (0, 5), (5, 9), (3, 5), (2, 6), (0, 2 + ostride), (0, 10 + ostride), (10, 13), (3, 10), (2, 11)],
+		#valleys=[(0, 2), (0, 5), (3, 5), (2, 6), (0, 2 + ostride), (0, 10 + ostride), (3, 10), (2, 11)],
+		raws=[(1, 5), (5, 8), (7, 8), (1, 10 + ostride), (10, 12), (12, 7)]
+	).i_replicate(14, 3)
+	return PartialCreasePatternBuilder().with_vertices(points1.vs).with_edges(edges1.edges)
+
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, WIDTH), pygame.RESIZABLE)
 pygame.display.set_caption("Gtess")
 pgft_font = pygame.freetype.SysFont("Monospace", 28)
+logo = pygame.image.load("./gtess.png")
+pygame.display.set_icon(logo)
 scene = Scene(screen, (WIDTH, WIDTH))
 
 scene.num_sides = 12
 pcp_builder = makeFlowerTowerBuilder(scene.num_sides)
 crease_pattern = pcp_builder.build()
 crease_pattern *= .2
+
+scene.addObject(crease_pattern)
+
+gap, rightmost_reg = max(((max(region.vs[0]), region) for region in crease_pattern.regions), key=fst)
+gap *= 2
+pleat_width = 2*max(rightmost_reg.vs[1])
+
+pcp_builder = makeFlowerTowerBuilder(scene.num_sides)
+crease_pattern = pcp_builder.build()
+crease_pattern *= .2
+crease_pattern += gap
+
+scene.addObject(crease_pattern)
+
+pcp_builder = makeFlowerTowerBuilder(scene.num_sides)
+crease_pattern = pcp_builder.build()
+crease_pattern *= .2
+crease_pattern += gap*(.5 + .5j*3**.5)
+
+scene.addObject(crease_pattern)
+
+pcp_builder = makeSplitTriangleTwistBuilder()
+crease_pattern = pcp_builder.build()
+wye_pleat_width = max(max(region.vs[1]) for region in crease_pattern.regions)*2/3
+crease_pattern *= pleat_width/wye_pleat_width*1.j
+crease_pattern += gap*(1.5 + .5j*3**.5)/3
 
 scene.addObject(crease_pattern)
 

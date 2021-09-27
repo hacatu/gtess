@@ -87,6 +87,11 @@ def intersectLines(a_p : np.ndarray, a_o : np.ndarray, b_p : np.ndarray, b_o : n
 	t : float = np.cross(b_p - a_p, a_o)/det
 	return b_p + b_o*t
 
+def reflectOverUnit(a : np.ndarray, v : np.ndarray) -> np.ndarray:
+	"""Reflect a 2d vector a over a unit vector v"""
+	vp = np.array([v[1], -v[0]])
+	return a.dot(v)*v - a.dot(vp)*vp
+
 class M3:
 	"""Convenience wrapper for a 2x3 matrix representing an affine transformation on 2D points.
 	Complex numbers (including real numbers), pairs of real numbers, and 2x3 iterables of real numbers
